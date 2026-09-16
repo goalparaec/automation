@@ -2,16 +2,15 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 import { NextResponse } from 'next/server';
-import { readTargetSheets } from '../../../lib/xlsxReader.js';
-import { upsertInputRows, recordUpload, generateAllOutputs } from '../../../lib/db.js';
+import { readSingleSheetFile } from '../../../lib/xlsxReader.js';
+import { replaceInputRows, recordUpload, generateAllOutputs } from '../../../lib/db.js';
 import { SHEET_CONFIGS } from '../../../lib/sheetConfig.js';
-
-const WANTED_SHEETS = Object.keys(SHEET_CONFIGS);
 
 export async function POST(request) {
   const formData = await request.formData();
   const file = formData.get('file');
   const reportDate = formData.get('reportDate');
+  const sheetType = formData.get('sheetType');
 
   if (!file || typeof file === 'string') {
     return NextResponse.json({ error: 'No file uploaded.' }, { status: 400 });
@@ -19,33 +18,50 @@ export async function POST(request) {
   if (!reportDate) {
     return NextResponse.json({ error: 'reportDate is required (YYYY-MM-DD).' }, { status: 400 });
   }
+  const config = SHEET_CONFIGS[sheetType];
+  if (!config) {
+    return NextResponse.json({ error: `Unknown report type "${sheetType}".` }, { status: 400 });
+  }
 
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+  const buffer = Buffer.from(await file.arrayBuffer());
 
-  let sheets;
+  let rows;
   try {
-    sheets = await readTargetSheets(buffer, WANTED_SHEETS);
+    rows = await readSingleSheetFile(buffer, sheetType);
   } catch (err) {
     await recordUpload({
       reportDate,
       filename: file.name,
       fileSizeBytes: buffer.length,
-      sheetsParsed: [],
+      sheetsParsed: [sheetType],
       rowCounts: {},
       status: 'failed',
       errorMessage: err.message,
     });
-    return NextResponse.json({ error: `Could not read workbook: ${err.message}` }, { status: 422 });
+    return NextResponse.json({ error: `Could not read file: ${err.message}` }, { status: 422 });
   }
 
-  const rowCounts = {};
+  if (rows.length === 0) {
+    await recordUpload({
+      reportDate,
+      filename: file.name,
+      fileSizeBytes: buffer.length,
+      sheetsParsed: [sheetType],
+      rowCounts: { [sheetType]: 0 },
+      status: 'failed',
+      errorMessage: 'No data rows were found in this file - check it is the right report.',
+    });
+    return NextResponse.json(
+      { error: 'No data rows were found in this file. Is this the right report type?' },
+      { status: 422 }
+    );
+  }
+
   try {
-    for (const [sheetName, config] of Object.entries(SHEET_CONFIGS)) {
-      const rows = sheets[sheetName] ?? [];
-      const count = await upsertInputRows(config.table, reportDate, rows);
-      rowCounts[sheetName] = count;
-    }
+    // Deletes any rows already stored for this date + report type, then
+    // inserts the freshly parsed rows - so a corrected re-upload fully
+    // replaces a previous mistake rather than merging with it.
+    const count = await replaceInputRows(config.table, reportDate, rows);
 
     await generateAllOutputs(reportDate);
 
@@ -53,22 +69,22 @@ export async function POST(request) {
       reportDate,
       filename: file.name,
       fileSizeBytes: buffer.length,
-      sheetsParsed: WANTED_SHEETS,
-      rowCounts,
+      sheetsParsed: [sheetType],
+      rowCounts: { [sheetType]: count },
       status: 'success',
     });
+
+    return NextResponse.json({ ok: true, reportDate, sheetType, rowCount: count });
   } catch (err) {
     await recordUpload({
       reportDate,
       filename: file.name,
       fileSizeBytes: buffer.length,
-      sheetsParsed: WANTED_SHEETS,
-      rowCounts,
+      sheetsParsed: [sheetType],
+      rowCounts: {},
       status: 'failed',
       errorMessage: err.message,
     });
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
-
-  return NextResponse.json({ ok: true, reportDate, rowCounts });
 }

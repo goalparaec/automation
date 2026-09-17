@@ -7,7 +7,7 @@ const nextConfig = {
       'sax',
       'xlsx',
       'playwright-core',
-      '@sparticuz/chromium',
+      '@sparticuz/chromium-min',
     ],
   },
 };

@@ -16,8 +16,7 @@ function toDMY(iso) {
   return `${d}-${m}-${y}`;
 }
 
-// Excel-style red -> yellow -> green 3-stop scale, matching a standard
-// conditional-formatting color scale rather than a pale, washed-out gradient.
+// Excel-style red -> yellow -> green 3-stop scale.
 const RED = [248, 105, 107];
 const YELLOW = [255, 235, 132];
 const GREEN = [99, 190, 123];
@@ -25,17 +24,11 @@ const GREEN = [99, 190, 123];
 function mix(a, b, t) {
   return a.map((v, i) => Math.round(v + (b[i] - v) * t));
 }
-
 function heatColor(t) {
   const [r, g, b] = t < 0.5 ? mix(RED, YELLOW, t / 0.5) : mix(YELLOW, GREEN, (t - 0.5) / 0.5);
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-// Builds one background color per row for a column, based on where that
-// row's value falls between the lowest and highest value that day
-// (excluding the two subtotal rows, which aren't sub-divisions being
-// compared). `higherIsBetter` flips the direction for columns like
-// "MU to be billed" or "remaining amount" where smaller is the good result.
 function buildHeatMap(rows, field, higherIsBetter) {
   const dataRows = rows.filter((r) => r.sub_division !== 'Circle Total' && r.sub_division !== 'Goalpara ED');
   const values = dataRows.map((r) => Number(r[field])).filter((v) => Number.isFinite(v));
@@ -64,7 +57,23 @@ function isTotalRow(subDivision) {
   return subDivision === 'Circle Total' || subDivision === 'Goalpara ED';
 }
 
-function ExportableTable({ id, title, dateLabel, children }) {
+// Renders the leading "Sl No" + "Sub-Division" pair of cells. For a normal
+// data row that's two separate cells; for a totals row ("Goalpara ED" /
+// "Circle Total") the Sl No cell would otherwise sit empty, so instead the
+// two are rendered as one merged, centered cell spanning both columns.
+function LabelCells({ subDivision, index }) {
+  if (isTotalRow(subDivision)) {
+    return <td colSpan={2} className="merged-total-label">{subDivision}</td>;
+  }
+  return (
+    <>
+      <td>{index + 1}</td>
+      <td className="subdiv-cell">{subDivision}</td>
+    </>
+  );
+}
+
+function ExportableTable({ id, title, children }) {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
 
@@ -85,11 +94,8 @@ function ExportableTable({ id, title, dateLabel, children }) {
   return (
     <div className="card">
       <div ref={ref} style={{ background: '#fff', padding: 8 }}>
-        <div className="report-title">
-          <span>{title}</span>
-          <span>{dateLabel}</span>
-        </div>
-        {children}
+        <div className="report-title">{title}</div>
+        <div className="table-scroll">{children}</div>
       </div>
       <div style={{ marginTop: 10, textAlign: 'right' }}>
         <button className="btn secondary" onClick={downloadImage} disabled={busy}>
@@ -131,7 +137,7 @@ export default function ReportView({ report }) {
         <a className="btn" href={`/api/reports/${reportDate}/excel`}>Download Excel (all sheets)</a>
       </div>
 
-      <ExportableTable id={`CE_Postpaid_${reportDate}`} title="COLLECTION of Goalpara Electrical Circle -" dateLabel={dmy}>
+      <ExportableTable id={`CE_Postpaid_${reportDate}`} title={`COLLECTION of Goalpara Electrical Circle -  ${dmy}`}>
         <table className="report-table">
           <thead>
             <tr>
@@ -144,8 +150,7 @@ export default function ReportView({ report }) {
           <tbody>
             {cePostpaid.map((r, i) => (
               <tr key={r.sub_division} className={isTotalRow(r.sub_division) ? 'total-row' : ''}>
-                <td>{isTotalRow(r.sub_division) ? '' : i + 1}</td>
-                <td>{r.sub_division}</td>
+                <LabelCells subDivision={r.sub_division} index={i} />
                 <td>₹{num(r.current_demand)}</td>
                 <td>₹{num(r.arrear_demand)}</td>
                 <td>₹{num(r.arrear_collection)}</td>
@@ -159,7 +164,7 @@ export default function ReportView({ report }) {
         </table>
       </ExportableTable>
 
-      <ExportableTable id={`BE_${reportDate}`} title="BILLING EFFICIENCY of Goalpara Electrical Circle as on" dateLabel={dmy}>
+      <ExportableTable id={`BE_${reportDate}`} title={`BILLING EFFICIENCY of Goalpara Electrical Circle as on  ${dmy}`}>
         <table className="report-table">
           <thead>
             <tr>
@@ -171,7 +176,7 @@ export default function ReportView({ report }) {
           <tbody>
             {be.map((r) => (
               <tr key={r.sub_division} className={isTotalRow(r.sub_division) ? 'total-row' : ''}>
-                <td>{r.sub_division}</td>
+                <td className="subdiv-cell">{r.sub_division}</td>
                 <td>{num(r.mu_injection, 3)}</td>
                 <td>{num(r.mub_sd, 3)}</td>
                 <td>{num(r.mub_irca, 3)}</td>
@@ -188,7 +193,7 @@ export default function ReportView({ report }) {
         </table>
       </ExportableTable>
 
-      <ExportableTable id={`BE_Cons_${reportDate}`} title="CONSUMER WISE BILLING of Goalpara Electrical Circle as on" dateLabel={dmy}>
+      <ExportableTable id={`BE_Cons_${reportDate}`} title={`CONSUMER WISE BILLING of Goalpara Electrical Circle as on  ${dmy}`}>
         <table className="report-table">
           <thead>
             <tr>
@@ -199,8 +204,7 @@ export default function ReportView({ report }) {
           <tbody>
             {beCons.map((r, i) => (
               <tr key={r.sub_division} className={isTotalRow(r.sub_division) ? 'total-row' : ''}>
-                <td>{isTotalRow(r.sub_division) ? '' : i + 1}</td>
-                <td>{r.sub_division}</td>
+                <LabelCells subDivision={r.sub_division} index={i} />
                 <td>{num(r.total_consumers)}</td>
                 <td>{num(r.total_billable_consumers)}</td>
                 <td>{num(r.total_billed_consumers)}</td>

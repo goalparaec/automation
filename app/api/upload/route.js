@@ -3,7 +3,7 @@ export const maxDuration = 60;
 
 import { NextResponse } from 'next/server';
 import { readSingleSheetFile } from '../../../lib/xlsxReader.js';
-import { replaceInputRows, recordUpload, generateAllOutputs } from '../../../lib/db.js';
+import { replaceInputRows, recordUpload, generateAllOutputs, validateReportRows } from '../../../lib/db.js';
 import { SHEET_CONFIGS } from '../../../lib/sheetConfig.js';
 
 export async function POST(request) {
@@ -53,6 +53,23 @@ export async function POST(request) {
     });
     return NextResponse.json(
       { error: 'No data rows were found in this file. Is this the right report type?' },
+      { status: 422 }
+    );
+  }
+
+  const problems = validateReportRows(sheetType, rows);
+  if (problems.length > 0) {
+    await recordUpload({
+      reportDate,
+      filename: file.name,
+      fileSizeBytes: buffer.length,
+      sheetsParsed: [sheetType],
+      rowCounts: { [sheetType]: rows.length },
+      status: 'failed',
+      errorMessage: problems.join(' '),
+    });
+    return NextResponse.json(
+      { error: `This file doesn't look complete: ${problems.join(' ')} Nothing was saved - please check the file and try again.` },
       { status: 422 }
     );
   }

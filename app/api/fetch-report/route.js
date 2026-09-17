@@ -2,13 +2,21 @@ export const runtime = 'nodejs';
 export const maxDuration = 60; // Vercel Hobby caps this at 60s regardless; Pro allows more
 
 import { NextResponse } from 'next/server';
-import chromium from '@sparticuz/chromium';
+import chromium from '@sparticuz/chromium-min';
 import { chromium as playwright } from 'playwright-core';
 import { readSingleSheetFile } from '../../../lib/xlsxReader.js';
 import { replaceInputRows, recordUpload, generateAllOutputs } from '../../../lib/db.js';
 import { SHEET_CONFIGS } from '../../../lib/sheetConfig.js';
 
 const LOGIN_URL = 'https://www.apdclrms.com/cbs/login';
+
+// @sparticuz/chromium-min doesn't bundle the browser binary itself (that's
+// what caused the "libnss3.so" error - Next.js's build wasn't reliably
+// including the full bundled binary). Instead it downloads a known-good
+// Chromium build from this pinned release the moment the function runs.
+// Version here must match the @sparticuz/chromium-min version in package.json.
+const CHROMIUM_PACK_URL =
+  'https://github.com/Sparticuz/chromium/releases/download/v123.0.1/chromium-v123.0.1-pack.tar';
 
 // The exact clickable text for each report inside the ARMS 360 Dashboard
 // popup, as recorded via `npx playwright codegen`. Fill in the remaining
@@ -94,7 +102,7 @@ async function downloadReport(popup, sheetType) {
 async function fetchFileFromPortal(sheetType) {
   const browser = await playwright.launch({
     args: chromium.args,
-    executablePath: await chromium.executablePath(),
+    executablePath: await chromium.executablePath(CHROMIUM_PACK_URL),
     headless: true,
   });
 

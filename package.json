@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@sparticuz/chromium": "^123.0.1",
+    "@sparticuz/chromium-min": "^123.0.1",
     "@supabase/supabase-js": "^2.45.4",
     "exceljs": "^4.4.0",
     "html-to-image": "^1.11.11",

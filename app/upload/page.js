@@ -11,6 +11,22 @@ function UploadRow({ sheetType, label, reportDate }) {
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState(null); // { type, message }
 
+  async function handleFetch() {
+    setStatus({ type: 'loading', message: 'Fetching from portal...' });
+    try {
+      const res = await fetch('/api/fetch-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetType, reportDate }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Fetch failed.');
+      setStatus({ type: 'success', message: `Fetched & saved ${data.rowCount} rows for ${reportDate}.` });
+    } catch (err) {
+      setStatus({ type: 'error', message: `${err.message} You can still upload the file manually below.` });
+    }
+  }
+
   async function handleUpload() {
     if (!file) {
       setStatus({ type: 'error', message: 'Choose a file first.' });
@@ -37,6 +53,10 @@ function UploadRow({ sheetType, label, reportDate }) {
     <div style={{ borderBottom: '1px solid #e5e7eb', padding: '14px 0' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <strong style={{ minWidth: 200 }}>{label}</strong>
+        <button className="btn" onClick={handleFetch} disabled={status?.type === 'loading'}>
+          Fetch from Portal
+        </button>
+        <span style={{ color: '#9ca3af', fontSize: 13 }}>or</span>
         <input
           type="file"
           accept=".xlsx"
@@ -45,8 +65,8 @@ function UploadRow({ sheetType, label, reportDate }) {
             setStatus(null);
           }}
         />
-        <button className="btn" onClick={handleUpload} disabled={status?.type === 'loading'}>
-          {status?.type === 'loading' ? 'Uploading...' : 'Upload'}
+        <button className="btn secondary" onClick={handleUpload} disabled={status?.type === 'loading'}>
+          {status?.type === 'loading' ? 'Working...' : 'Upload File'}
         </button>
       </div>
       {status && (
@@ -66,18 +86,23 @@ export default function UploadPage() {
 
   return (
     <div className="card">
-      <h1>Upload today's reports</h1>
+      <h1>Get today's reports</h1>
       <p>
-        Upload each report file separately, as they come in from the source
-        system — there is no need to combine them into one workbook. Every
-        report shares the same layout as before, so no other change is
-        needed on that end.
+        Try <strong>Fetch from Portal</strong> first — it logs into the
+        company portal and pulls the report automatically. If that fails for
+        any reason (portal down, layout changed, session issue), just
+        upload the file manually using the option next to it — nothing
+        blocks you from continuing that way.
       </p>
       <p>
-        Re-uploading a file for a date that's already been uploaded fully
-        replaces the previous data for that report and date — useful if a
-        wrong file was uploaded earlier and needs correcting. Nothing needs
-        to be uploaded again for the other reports; each is independent.
+        You don't need every report present to generate a report: if a file
+        hasn't come in yet for a report, the app uses that report's most
+        recent earlier values automatically, and swaps in the real data the
+        moment it's uploaded or fetched.
+      </p>
+      <p>
+        Re-fetching or re-uploading a report for a date that's already been
+        saved fully replaces the previous data — useful for corrections.
       </p>
 
       <div className="field-row">

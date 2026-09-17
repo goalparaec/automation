@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import chromium from '@sparticuz/chromium-min';
 import { chromium as playwright } from 'playwright-core';
 import { readSingleSheetFile } from '../../../lib/xlsxReader.js';
-import { replaceInputRows, recordUpload, generateAllOutputs } from '../../../lib/db.js';
+import { replaceInputRows, recordUpload, generateAllOutputs, validateReportRows } from '../../../lib/db.js';
 import { SHEET_CONFIGS } from '../../../lib/sheetConfig.js';
 
 const LOGIN_URL = 'https://www.apdclrms.com/cbs/login';
@@ -149,6 +149,10 @@ export async function POST(request) {
     const rows = await readSingleSheetFile(buffer, sheetType);
     if (rows.length === 0) {
       throw new Error('The fetched file had no recognizable data rows.');
+    }
+    const problems = validateReportRows(sheetType, rows);
+    if (problems.length > 0) {
+      throw new Error(`This file doesn't look complete: ${problems.join(' ')}`);
     }
     const count = await replaceInputRows(config.table, reportDate, rows);
     await generateAllOutputs(reportDate);

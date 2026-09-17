@@ -59,7 +59,7 @@ function UploadRow({ sheetType, label, reportDate }) {
         <span style={{ color: '#9ca3af', fontSize: 13 }}>or</span>
         <input
           type="file"
-          accept=".xlsx"
+          accept=".xlsx,.xls,.csv"
           onChange={(e) => {
             setFile(e.target.files?.[0] ?? null);
             setStatus(null);

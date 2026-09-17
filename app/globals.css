@@ -70,10 +70,17 @@ table.report-table tr.total-row {
   font-weight: 700;
   text-decoration: underline;
   margin-bottom: 10px;
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
+  text-align: center;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+table.report-table td.subdiv-cell {
+  white-space: nowrap;
+}
+table.report-table td.merged-total-label {
+  white-space: nowrap;
+  text-align: center;
 }
 
 .btn {

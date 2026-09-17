@@ -8,18 +8,88 @@ import { readSingleSheetFile } from '../../../lib/xlsxReader.js';
 import { replaceInputRows, recordUpload, generateAllOutputs } from '../../../lib/db.js';
 import { SHEET_CONFIGS } from '../../../lib/sheetConfig.js';
 
-// TODO: same placeholders as the standalone script - fill these in using
-// `npx playwright codegen <login-url>` on your own machine, then copy the
-// exact selectors here. See automation/scrape-and-upload.mjs for the fuller
-// walkthrough of how to record them.
-const LOGIN_URL = 'https://TODO-your-portal.example.com/login';
-const REPORT_URLS = {
-  '360_Daily': 'https://TODO-your-portal.example.com/reports/360-daily',
-  '360_Cum': 'https://TODO-your-portal.example.com/reports/360-cumulative',
-  Converted: 'https://TODO-your-portal.example.com/reports/converted',
-  Prepaid_Bill: 'https://TODO-your-portal.example.com/reports/prepaid-billing',
-  IRCA_Bill: 'https://TODO-your-portal.example.com/reports/irca-billing',
+const LOGIN_URL = 'https://www.apdclrms.com/cbs/login';
+
+// The exact clickable text for each report inside the ARMS 360 Dashboard
+// popup, as recorded via `npx playwright codegen`. Fill in the remaining
+// 3 the same way (record just the "click through to that report and
+// download" part - login/dashboard-opening is shared and already covered).
+const REPORT_LINK_TEXT = {
+  '360_Daily': 'Daily Report',
+  '360_Cum': 'Cumulative Monthly Report',
+  Converted: null, // TODO: record this one with codegen
+  Prepaid_Bill: null, // TODO: record this one with codegen
+  IRCA_Bill: null, // TODO: record this one with codegen
 };
+
+async function elementAppears(locator, timeoutMs) {
+  try {
+    await locator.waitFor({ state: 'visible', timeout: timeoutMs });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function login(page) {
+  await page.goto(LOGIN_URL);
+  await page.getByRole('textbox', { name: 'your username' }).fill(process.env.PORTAL_USERNAME);
+  await page.getByRole('textbox', { name: '**********' }).fill(process.env.PORTAL_PASSWORD);
+  await page.getByRole('button', { name: 'Log in' }).click();
+
+  // The portal sometimes shows a "user is already logged in elsewhere"
+  // prompt if a previous session wasn't closed cleanly (e.g. the browser
+  // crashed instead of logging out). When it appears, confirming forces a
+  // fresh login; when it doesn't appear, this is skipped automatically
+  // rather than hanging and waiting for something that isn't there.
+  const promptAppeared = await elementAppears(page.getByText('User is already logged in'), 5000);
+  if (promptAppeared) {
+    await page.getByRole('button', { name: 'Log in' }).click();
+  }
+}
+
+async function openDashboard(page) {
+  // NOTE: this specific click is a position-based locator ("the 4th span
+  // on the page") rather than a named one, because that's what codegen
+  // recorded for whatever menu/icon needs clicking before the dashboard
+  // link becomes available. It's the most fragile step here - if the
+  // portal's layout changes, this is the first thing to re-record.
+  await page.locator('span').nth(4).click();
+
+  const [popup] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByText('ARMS 360 Dashboard').click(),
+  ]);
+  await popup.getByText('APDCL Performance').click();
+  return popup;
+}
+
+async function downloadReport(popup, sheetType) {
+  const linkText = REPORT_LINK_TEXT[sheetType];
+  if (!linkText) {
+    throw new Error(
+      `No recorded steps yet for "${sheetType}" on the portal - record it with ` +
+      `"npx playwright codegen" and send the generated code over.`
+    );
+  }
+
+  await popup.getByText(linkText).click();
+  const [download] = await Promise.all([
+    popup.waitForEvent('download'),
+    popup.getByText('Excel').click(),
+  ]);
+
+  const stream = await download.createReadStream();
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+
+  // Close the report dialog so the dashboard is ready for the next report
+  // if this same popup gets reused (not currently the case per-request,
+  // but keeps the portal's own UI state clean either way).
+  await popup.getByRole('button', { name: 'Close' }).click().catch(() => {});
+
+  return Buffer.concat(chunks);
+}
 
 async function fetchFileFromPortal(sheetType) {
   const browser = await playwright.launch({
@@ -30,25 +100,9 @@ async function fetchFileFromPortal(sheetType) {
 
   try {
     const page = await browser.newPage();
-
-    await page.goto(LOGIN_URL);
-    // TODO: replace with your portal's real login field/button selectors.
-    await page.fill('#username', process.env.PORTAL_USERNAME);
-    await page.fill('#password', process.env.PORTAL_PASSWORD);
-    await page.click('button[type="submit"]');
-    await page.waitForLoadState('networkidle');
-
-    await page.goto(REPORT_URLS[sheetType]);
-    // TODO: replace with the actual "Download" button's selector/text.
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.click('text=Download'),
-    ]);
-
-    const stream = await download.createReadStream();
-    const chunks = [];
-    for await (const chunk of stream) chunks.push(chunk);
-    return Buffer.concat(chunks);
+    await login(page);
+    const popup = await openDashboard(page);
+    return await downloadReport(popup, sheetType);
   } finally {
     await browser.close();
   }

@@ -3,6 +3,10 @@
     "app/api/upload/route.js": {
       "memory": 1024,
       "maxDuration": 60
+    },
+    "app/api/fetch-report/route.js": {
+      "memory": 1536,
+      "maxDuration": 60
     }
   }
 }

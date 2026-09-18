@@ -16,7 +16,7 @@ const LOGIN_URL = 'https://www.apdclrms.com/cbs/login';
 // Chromium build from this pinned release the moment the function runs.
 // Version here must match the @sparticuz/chromium-min version in package.json.
 const CHROMIUM_PACK_URL =
-  'https://github.com/Sparticuz/chromium/releases/download/v123.0.1/chromium-v123.0.1-pack.tar';
+  'https://github.com/Sparticuz/chromium/releases/download/v119.0.2/chromium-v119.0.2-pack.tar';
 
 // The exact clickable text for each report inside the ARMS 360 Dashboard
 // popup, as recorded via `npx playwright codegen`. Fill in the remaining

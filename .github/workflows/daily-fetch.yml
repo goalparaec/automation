@@ -42,5 +42,6 @@ jobs:
             /tmp/after-login.png
             /tmp/error-screenshot.png
             /tmp/error-page.html
+            /tmp/error-*.png
           if-no-files-found: ignore
           retention-days: 7

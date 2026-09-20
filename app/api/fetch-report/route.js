@@ -39,21 +39,19 @@ async function elementAppears(locator, timeoutMs) {
   }
 }
 
-async function clickLoginButton(page) {
-  // Some portals briefly show a transient overlay (here, a div with id
-  // "outOfSync" - likely a client-side time/session sync check) right
-  // after credentials are filled in, which physically sits on top of the
-  // login button and blocks a normal click. Wait for it to clear on its
-  // own first; if it's still there after a reasonable wait, force the
-  // click through anyway rather than failing outright.
+async function robustClick(page, locator) {
+  // This portal repeatedly shows a transient overlay (a div with id
+  // "outOfSync" - likely a client-side time/session sync check) that sits
+  // on top of whatever's underneath and blocks normal clicks, at seemingly
+  // random points throughout the flow, not just at login. Every click
+  // goes through here: wait briefly for the overlay to clear on its own,
+  // then force the click through if it's still there.
   const overlay = page.locator('#outOfSync');
-  await overlay.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
-
-  const loginButton = page.getByRole('button', { name: 'Log in' });
+  await overlay.waitFor({ state: 'hidden', timeout: 8000 }).catch(() => {});
   try {
-    await loginButton.click({ timeout: 10000 });
+    await locator.click({ timeout: 8000 });
   } catch {
-    await loginButton.click({ force: true });
+    await locator.click({ force: true });
   }
 }
 
@@ -61,7 +59,7 @@ async function login(page) {
   await page.goto(LOGIN_URL);
   await page.getByRole('textbox', { name: 'your username' }).fill(process.env.PORTAL_USERNAME);
   await page.getByRole('textbox', { name: '**********' }).fill(process.env.PORTAL_PASSWORD);
-  await clickLoginButton(page);
+  await robustClick(page, page.getByRole('button', { name: 'Log in' }));
 
   // The portal sometimes shows a "user is already logged in elsewhere"
   // prompt if a previous session wasn't closed cleanly (e.g. the browser
@@ -70,7 +68,7 @@ async function login(page) {
   // rather than hanging and waiting for something that isn't there.
   const promptAppeared = await elementAppears(page.getByText('User is already logged in'), 5000);
   if (promptAppeared) {
-    await clickLoginButton(page);
+    await robustClick(page, page.getByRole('button', { name: 'Log in' }));
   }
 }
 
@@ -80,13 +78,13 @@ async function openDashboard(page) {
   // recorded for whatever menu/icon needs clicking before the dashboard
   // link becomes available. It's the most fragile step here - if the
   // portal's layout changes, this is the first thing to re-record.
-  await page.locator('span').nth(4).click();
+  await robustClick(page, page.locator('span').nth(4));
 
   const [popup] = await Promise.all([
     page.waitForEvent('popup'),
-    page.getByText('ARMS 360 Dashboard').click(),
+    robustClick(page, page.getByText('ARMS 360 Dashboard')),
   ]);
-  await popup.getByText('APDCL Performance').click();
+  await robustClick(popup, popup.getByText('APDCL Performance'));
   return popup;
 }
 
@@ -99,10 +97,10 @@ async function downloadReport(popup, sheetType) {
     );
   }
 
-  await popup.getByText(linkText).click();
+  await robustClick(popup, popup.getByText(linkText));
   const [download] = await Promise.all([
     popup.waitForEvent('download'),
-    popup.getByText('Excel').click(),
+    robustClick(popup, popup.getByText('Excel')),
   ]);
 
   const stream = await download.createReadStream();
@@ -112,7 +110,7 @@ async function downloadReport(popup, sheetType) {
   // Close the report dialog so the dashboard is ready for the next report
   // if this same popup gets reused (not currently the case per-request,
   // but keeps the portal's own UI state clean either way).
-  await popup.getByRole('button', { name: 'Close' }).click().catch(() => {});
+  await robustClick(popup, popup.getByRole('button', { name: 'Close' })).catch(() => {});
 
   return Buffer.concat(chunks);
 }

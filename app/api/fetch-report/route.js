@@ -123,7 +123,12 @@ async function fetchFileFromPortal(sheetType) {
   });
 
   try {
-    const page = await browser.newPage();
+    // Same "time out of sync" issue as the GitHub Actions script - the
+    // portal's check appears to assume the browser is already in India
+    // time. Vercel's serverless functions also default to UTC, so this
+    // fixes login there too.
+    const context = await browser.newContext({ timezoneId: 'Asia/Kolkata' });
+    const page = await context.newPage();
     await login(page);
     const popup = await openDashboard(page);
     return await downloadReport(popup, sheetType);

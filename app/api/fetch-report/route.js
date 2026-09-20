@@ -39,11 +39,29 @@ async function elementAppears(locator, timeoutMs) {
   }
 }
 
+async function clickLoginButton(page) {
+  // Some portals briefly show a transient overlay (here, a div with id
+  // "outOfSync" - likely a client-side time/session sync check) right
+  // after credentials are filled in, which physically sits on top of the
+  // login button and blocks a normal click. Wait for it to clear on its
+  // own first; if it's still there after a reasonable wait, force the
+  // click through anyway rather than failing outright.
+  const overlay = page.locator('#outOfSync');
+  await overlay.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
+
+  const loginButton = page.getByRole('button', { name: 'Log in' });
+  try {
+    await loginButton.click({ timeout: 10000 });
+  } catch {
+    await loginButton.click({ force: true });
+  }
+}
+
 async function login(page) {
   await page.goto(LOGIN_URL);
   await page.getByRole('textbox', { name: 'your username' }).fill(process.env.PORTAL_USERNAME);
   await page.getByRole('textbox', { name: '**********' }).fill(process.env.PORTAL_PASSWORD);
-  await page.getByRole('button', { name: 'Log in' }).click();
+  await clickLoginButton(page);
 
   // The portal sometimes shows a "user is already logged in elsewhere"
   // prompt if a previous session wasn't closed cleanly (e.g. the browser
@@ -52,7 +70,7 @@ async function login(page) {
   // rather than hanging and waiting for something that isn't there.
   const promptAppeared = await elementAppears(page.getByText('User is already logged in'), 5000);
   if (promptAppeared) {
-    await page.getByRole('button', { name: 'Log in' }).click();
+    await clickLoginButton(page);
   }
 }
 

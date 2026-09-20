@@ -32,3 +32,15 @@ jobs:
           APP_URL: ${{ secrets.APP_URL }}
           APP_UPLOAD_SECRET: ${{ secrets.APP_UPLOAD_SECRET }}
         run: node automation/scrape-and-upload.mjs
+
+      - name: Upload debug screenshots (only runs if the step above failed)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: |
+            /tmp/after-login.png
+            /tmp/error-screenshot.png
+            /tmp/error-page.html
+          if-no-files-found: ignore
+          retention-days: 7

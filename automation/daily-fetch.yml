@@ -1,0 +1,34 @@
+# Save this file at .github/workflows/daily-fetch.yml in your repo
+# (create the .github/workflows/ folder if it doesn't exist yet).
+
+name: Daily portal fetch
+
+on:
+  schedule:
+    # Runs at 04:00 UTC = 09:30 IST. Adjust the cron time to whenever the
+    # portal's reports are reliably ready each day.
+    - cron: '0 4 * * *'
+  workflow_dispatch: {}   # lets you also trigger it manually from the Actions tab
+
+jobs:
+  fetch-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Playwright
+        run: |
+          npm install playwright
+          npx playwright install --with-deps chromium
+
+      - name: Run daily fetch
+        env:
+          PORTAL_USERNAME: ${{ secrets.PORTAL_USERNAME }}
+          PORTAL_PASSWORD: ${{ secrets.PORTAL_PASSWORD }}
+          APP_URL: ${{ secrets.APP_URL }}
+          APP_UPLOAD_SECRET: ${{ secrets.APP_UPLOAD_SECRET }}
+        run: node automation/scrape-and-upload.mjs

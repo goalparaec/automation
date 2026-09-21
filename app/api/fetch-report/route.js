@@ -1,5 +1,8 @@
 export const runtime = 'nodejs';
-export const maxDuration = 60; // Vercel Hobby caps this at 60s regardless; Pro allows more
+// Vercel Hobby caps functions at 60s regardless of this setting - Pro
+// allows up to 300s+. Set high here so it isn't the limiting factor on
+// plans that do allow more; on Hobby, Vercel silently caps it at 60s.
+export const maxDuration = 180;
 
 import { NextResponse } from 'next/server';
 import chromium from '@sparticuz/chromium-min';
@@ -10,11 +13,6 @@ import { SHEET_CONFIGS } from '../../../lib/sheetConfig.js';
 
 const LOGIN_URL = 'https://www.apdclrms.com/cbs/login';
 
-// @sparticuz/chromium-min doesn't bundle the browser binary itself (that's
-// what caused the "libnss3.so" error - Next.js's build wasn't reliably
-// including the full bundled binary). Instead it downloads a known-good
-// Chromium build from this pinned release the moment the function runs.
-// Version here must match the @sparticuz/chromium-min version in package.json.
 const CHROMIUM_PACK_URL =
   'https://github.com/Sparticuz/chromium/releases/download/v119.0.2/chromium-v119.0.2-pack.tar';
 
@@ -40,12 +38,6 @@ async function elementAppears(locator, timeoutMs) {
 }
 
 async function robustClick(page, locator) {
-  // This portal repeatedly shows a transient overlay (a div with id
-  // "outOfSync" - likely a client-side time/session sync check) that sits
-  // on top of whatever's underneath and blocks normal clicks, at seemingly
-  // random points throughout the flow, not just at login. Every click
-  // goes through here: wait briefly for the overlay to clear on its own,
-  // then force the click through if it's still there.
   const overlay = page.locator('#outOfSync');
   await overlay.waitFor({ state: 'hidden', timeout: 8000 }).catch(() => {});
   try {
@@ -61,11 +53,6 @@ async function login(page) {
   await page.getByRole('textbox', { name: '**********' }).fill(process.env.PORTAL_PASSWORD);
   await robustClick(page, page.getByRole('button', { name: 'Log in' }));
 
-  // The portal sometimes shows a "user is already logged in elsewhere"
-  // prompt if a previous session wasn't closed cleanly (e.g. the browser
-  // crashed instead of logging out). When it appears, confirming forces a
-  // fresh login; when it doesn't appear, this is skipped automatically
-  // rather than hanging and waiting for something that isn't there.
   const promptAppeared = await elementAppears(page.getByText('User is already logged in'), 5000);
   if (promptAppeared) {
     await robustClick(page, page.getByRole('button', { name: 'Log in' }));
@@ -73,11 +60,6 @@ async function login(page) {
 }
 
 async function openDashboard(page) {
-  // NOTE: this specific click is a position-based locator ("the 4th span
-  // on the page") rather than a named one, because that's what codegen
-  // recorded for whatever menu/icon needs clicking before the dashboard
-  // link becomes available. It's the most fragile step here - if the
-  // portal's layout changes, this is the first thing to re-record.
   await robustClick(page, page.locator('span').nth(4));
 
   const [popup] = await Promise.all([
@@ -88,7 +70,15 @@ async function openDashboard(page) {
   return popup;
 }
 
-async function downloadReport(popup, sheetType) {
+// TODO: once a report's date-picker is recorded, fill it in here before
+// clicking into the report. No-op for now so nothing breaks when a date
+// range is passed for a report that doesn't have this wired up yet.
+async function selectDateRangeIfNeeded(popup, sheetType, fromDate, toDate) {
+  if (!fromDate && !toDate) return;
+  console.log(`(fromDate=${fromDate} toDate=${toDate} given for ${sheetType}, but date-picker automation isn't recorded yet - using the portal's default date instead.)`);
+}
+
+async function downloadReport(popup, sheetType, fromDate, toDate) {
   const linkText = REPORT_LINK_TEXT[sheetType];
   if (!linkText) {
     throw new Error(
@@ -97,9 +87,16 @@ async function downloadReport(popup, sheetType) {
     );
   }
 
+  await popup.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
   await robustClick(popup, popup.getByText(linkText));
+
+  await selectDateRangeIfNeeded(popup, sheetType, fromDate, toDate);
+
   const [download] = await Promise.all([
-    popup.waitForEvent('download'),
+    // 3 minutes - some reports take noticeably longer to generate
+    // server-side. Note this is still bounded by Vercel's own function
+    // time limit (maxDuration above), which wins if it's the smaller one.
+    popup.waitForEvent('download', { timeout: 180000 }),
     robustClick(popup, popup.getByText('Excel')),
   ]);
 
@@ -107,15 +104,21 @@ async function downloadReport(popup, sheetType) {
   const chunks = [];
   for await (const chunk of stream) chunks.push(chunk);
 
-  // Close the report dialog so the dashboard is ready for the next report
-  // if this same popup gets reused (not currently the case per-request,
-  // but keeps the portal's own UI state clean either way).
   await robustClick(popup, popup.getByRole('button', { name: 'Close' })).catch(() => {});
 
   return Buffer.concat(chunks);
 }
 
-async function fetchFileFromPortal(sheetType) {
+async function logout(page) {
+  try {
+    await robustClick(page, page.getByText('P', { exact: true }));
+    await robustClick(page, page.getByText('Log out'));
+  } catch (err) {
+    console.warn(`Logout did not complete cleanly (non-fatal): ${err.message}`);
+  }
+}
+
+async function fetchFileFromPortal(sheetType, fromDate, toDate) {
   const browser = await playwright.launch({
     args: chromium.args,
     executablePath: await chromium.executablePath(CHROMIUM_PACK_URL),
@@ -123,22 +126,37 @@ async function fetchFileFromPortal(sheetType) {
   });
 
   try {
-    // Same "time out of sync" issue as the GitHub Actions script - the
-    // portal's check appears to assume the browser is already in India
-    // time. Vercel's serverless functions also default to UTC, so this
-    // fixes login there too.
     const context = await browser.newContext({ timezoneId: 'Asia/Kolkata' });
     const page = await context.newPage();
     await login(page);
     const popup = await openDashboard(page);
-    return await downloadReport(popup, sheetType);
+    const buffer = await downloadReport(popup, sheetType, fromDate, toDate);
+    await logout(page);
+    return buffer;
   } finally {
     await browser.close();
   }
 }
 
+function firstOfMonthISO() {
+  const now = new Date();
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-01`;
+}
+
+// IRCA_Bill always needs "1st of the current month through the chosen
+// date" on the portal - computed automatically here so the in-app button
+// doesn't require the person to fill in From/To manually every time.
+function resolveDateRange(sheetType, explicitFrom, explicitTo, reportDate) {
+  const to = explicitTo || reportDate;
+  if (sheetType === 'IRCA_Bill' && !explicitFrom) {
+    return { from: firstOfMonthISO(), to };
+  }
+  return { from: explicitFrom, to };
+}
+
 export async function POST(request) {
-  const { sheetType, reportDate } = await request.json();
+  const { sheetType, reportDate, fromDate, toDate } = await request.json();
 
   const config = SHEET_CONFIGS[sheetType];
   if (!config) {
@@ -154,12 +172,12 @@ export async function POST(request) {
     );
   }
 
+  const { from: resolvedFromDate, to: resolvedToDate } = resolveDateRange(sheetType, fromDate, toDate, reportDate);
+
   let buffer;
   try {
-    buffer = await fetchFileFromPortal(sheetType);
+    buffer = await fetchFileFromPortal(sheetType, resolvedFromDate, resolvedToDate);
   } catch (err) {
-    // Any portal/browser failure lands here - the frontend falls back to
-    // showing the manual upload input for this report, already in place.
     return NextResponse.json(
       { error: `Could not fetch from the portal: ${err.message}. Please upload the file manually instead.` },
       { status: 502 }
@@ -171,6 +189,9 @@ export async function POST(request) {
     if (rows.length === 0) {
       throw new Error('The fetched file had no recognizable data rows.');
     }
+    // Every fetched file goes through the same validation a manual upload
+    // does - all 5 sub-divisions present, plausible totals - before
+    // anything is stored.
     const problems = validateReportRows(sheetType, rows);
     if (problems.length > 0) {
       throw new Error(`This file doesn't look complete: ${problems.join(' ')}`);

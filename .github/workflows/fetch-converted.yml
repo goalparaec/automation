@@ -1,0 +1,55 @@
+# Fetches and uploads just the Converted report. Independent of the
+# other 4 report workflows - this one failing doesn't affect them, and
+# each shows its own separate pass/fail history in the Actions tab.
+name: Fetch Converted
+
+on:
+  schedule:
+    - cron: '10 4 * * *'
+  workflow_dispatch:
+    inputs:
+      from_date:
+        description: 'From date (YYYY-MM-DD) - optional, only used once date-picker automation is recorded for this report'
+        required: false
+      to_date:
+        description: 'To date (YYYY-MM-DD) - optional, defaults to today if left blank'
+        required: false
+
+jobs:
+  fetch-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Playwright
+        run: |
+          npm install playwright
+          npx playwright install --with-deps chromium
+
+      - name: Run fetch for Converted
+        env:
+          PORTAL_USERNAME: ${{ secrets.PORTAL_USERNAME }}
+          PORTAL_PASSWORD: ${{ secrets.PORTAL_PASSWORD }}
+          APP_URL: ${{ secrets.APP_URL }}
+          APP_UPLOAD_SECRET: ${{ secrets.APP_UPLOAD_SECRET }}
+          SHEET_TYPE: Converted
+          FROM_DATE: ${{ github.event.inputs.from_date }}
+          TO_DATE: ${{ github.event.inputs.to_date }}
+        run: node automation/scrape-and-upload.mjs
+
+      - name: Upload debug screenshots (only runs if the step above failed)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots-converted
+          path: |
+            /tmp/after-login.png
+            /tmp/error-screenshot.png
+            /tmp/error-page.html
+            /tmp/error-*.png
+          if-no-files-found: ignore
+          retention-days: 7

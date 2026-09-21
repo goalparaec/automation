@@ -1,13 +1,25 @@
-// Daily portal fetch: logs into the APDCL ARMS portal, downloads each of
-// the 5 report files, and uploads them to the GpEC Daily Report app - the
-// same as if you'd uploaded them by hand on the /upload page.
+// Fetches ONE report from the APDCL ARMS portal and uploads it to the
+// GpEC Daily Report app - the same as uploading it by hand on /upload.
 //
-// 2 of 5 reports (360_Daily, 360_Cum) use real recorded selectors already.
-// The remaining 3 (Converted, Prepaid_Bill, IRCA_Bill) still show a clear
-// error until you record them the same way and fill in REPORT_LINK_TEXT
-// below - run `npx playwright codegen https://www.apdclrms.com/cbs/login`,
-// click through to each remaining report and download it, then copy the
-// generated code's report-link text into REPORT_LINK_TEXT.
+// Which report to fetch is controlled by the SHEET_TYPE environment
+// variable (set by whichever GitHub Actions workflow calls this - see
+// .github/workflows/daily-fetch-*.yml, one per report). This script
+// handles exactly one report per run by design: isolated failures (one
+// report breaking doesn't block the other 4), independent retriggering,
+// and a separate pass/fail status per report in the Actions tab.
+//
+// REPORT_LINK_TEXT below has real, working entries for 360_Daily and
+// 360_Cum. The other 3 (Converted, Prepaid_Bill, IRCA_Bill) still need
+// their own codegen recording - see the bottom of this file for the
+// steps, or ask for them again if you forget.
+//
+// FROM_DATE / TO_DATE (optional): some reports need a date range selected
+// on the portal itself before downloading, rather than just using today.
+// These are threaded through end-to-end already, but actually using them
+// to fill in each report's date picker on the ARMS portal is a TODO -
+// that needs its own codegen recording per report showing exactly how
+// that report's date picker works, since portals often differ (a single
+// calendar widget, separate from/to fields, a month+year dropdown, etc).
 
 import { chromium } from 'playwright';
 import fs from 'node:fs';
@@ -17,6 +29,9 @@ const PORTAL_USERNAME = process.env.PORTAL_USERNAME;
 const PORTAL_PASSWORD = process.env.PORTAL_PASSWORD;
 const APP_URL = process.env.APP_URL; // e.g. https://your-app.vercel.app
 const APP_UPLOAD_SECRET = process.env.APP_UPLOAD_SECRET; // optional
+const SHEET_TYPE = process.env.SHEET_TYPE; // which single report to fetch this run
+const FROM_DATE = process.env.FROM_DATE || null; // optional, YYYY-MM-DD
+const TO_DATE = process.env.TO_DATE || null; // optional, YYYY-MM-DD
 
 const LOGIN_URL = 'https://www.apdclrms.com/cbs/login';
 
@@ -34,6 +49,25 @@ function todayISO() {
   return ist.toISOString().slice(0, 10);
 }
 
+function firstOfMonthISO() {
+  const now = new Date();
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-01`;
+}
+
+// IRCA_Bill always needs "1st of the current month through today" on the
+// portal, not a single fixed date - and that range shifts every single
+// day (today's date changes, and on the 1st of a new month, "1st" itself
+// changes too). This computes it fresh on every run rather than relying
+// on a value that would go stale.
+function resolveDateRange(sheetType, explicitFrom, explicitTo) {
+  const to = explicitTo || todayISO();
+  if (sheetType === 'IRCA_Bill' && !explicitFrom) {
+    return { from: firstOfMonthISO(), to };
+  }
+  return { from: explicitFrom, to };
+}
+
 async function elementAppears(locator, timeoutMs) {
   try {
     await locator.waitFor({ state: 'visible', timeout: timeoutMs });
@@ -44,12 +78,10 @@ async function elementAppears(locator, timeoutMs) {
 }
 
 // This portal repeatedly shows a transient overlay (a div with id
-// "outOfSync" - likely a client-side time/session sync check) that sits on
-// top of whatever's underneath and blocks normal clicks, at seemingly
-// random points throughout the flow, not just at login. Every click in
-// this script goes through here: wait briefly for the overlay to clear on
-// its own, then force the click through if it's still sitting there
-// rather than failing the whole run over a cosmetic overlay.
+// "outOfSync") that sits on top of whatever's underneath and blocks
+// normal clicks, at seemingly random points throughout the flow. Every
+// click in this script goes through here: wait briefly for the overlay
+// to clear on its own, then force the click through if it's still there.
 async function robustClick(page, locator) {
   const overlay = page.locator('#outOfSync');
   await overlay.waitFor({ state: 'hidden', timeout: 8000 }).catch(() => {});
@@ -66,8 +98,6 @@ async function login(page) {
   await page.getByRole('textbox', { name: '**********' }).fill(PORTAL_PASSWORD);
   await robustClick(page, page.getByRole('button', { name: 'Log in' }));
 
-  // Confirms a forced login if the portal reports a session already active
-  // elsewhere; skipped automatically when that prompt doesn't appear.
   const promptAppeared = await elementAppears(page.getByText('User is already logged in'), 5000);
   if (promptAppeared) {
     await robustClick(page, page.getByRole('button', { name: 'Log in' }));
@@ -75,8 +105,6 @@ async function login(page) {
 }
 
 async function openDashboard(page) {
-  // Fragile, position-based click ("4th span on the page") recorded by
-  // codegen - re-record this specific step first if the portal changes.
   await robustClick(page, page.locator('span').nth(4));
 
   const [popup] = await Promise.all([
@@ -87,24 +115,35 @@ async function openDashboard(page) {
   return popup;
 }
 
-async function downloadReport(popup, sheetType) {
+// TODO: once a report's date-picker is recorded, fill it in here before
+// clicking into the report - e.g. clicking a "from" field, typing
+// fromDate, clicking a "to" field, typing toDate, then confirming.
+// Left as a no-op for reports that don't need date selection (or when no
+// range applies) so nothing breaks in the meantime. For IRCA_Bill
+// specifically, fromDate/toDate are already computed correctly (1st of
+// month -> today) by the time this is called - this function just needs
+// the actual clicks recorded to put them into the portal's own fields.
+async function selectDateRangeIfNeeded(popup, sheetType, fromDate, toDate) {
+  if (!fromDate && !toDate) return;
+  console.log(`(fromDate=${fromDate} toDate=${toDate} for ${sheetType}, but date-picker automation isn't recorded yet - using the portal's default date instead.)`);
+}
+
+async function downloadReport(popup, sheetType, fromDate, toDate) {
   const linkText = REPORT_LINK_TEXT[sheetType];
   if (!linkText) {
     throw new Error(`No recorded steps yet for "${sheetType}" - record it with codegen and fill in REPORT_LINK_TEXT.`);
   }
 
   try {
-    // A brief settle-wait before opening the next report, in case the
-    // previous report's dialog is still finishing its own close animation
-    // or the dashboard hasn't fully reset yet.
     await popup.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
-
     await robustClick(popup, popup.getByText(linkText));
+
+    await selectDateRangeIfNeeded(popup, sheetType, fromDate, toDate);
+
     const [download] = await Promise.all([
-      // 90s instead of the default 30s - some reports (especially
-      // cumulative ones covering a full month) take noticeably longer to
-      // generate server-side than a single day's report does.
-      popup.waitForEvent('download', { timeout: 90000 }),
+      // 3 minutes - some reports (especially cumulative/monthly ones)
+      // take noticeably longer to generate server-side than a daily one.
+      popup.waitForEvent('download', { timeout: 180000 }),
       robustClick(popup, popup.getByText('Excel')),
     ]);
 
@@ -113,24 +152,40 @@ async function downloadReport(popup, sheetType) {
     await robustClick(popup, popup.getByRole('button', { name: 'Close' })).catch(() => {});
     return savePath;
   } catch (err) {
-    // Capture what the report dialog actually looked like at the moment
-    // this specific report failed, so a repeat failure is diagnosable
-    // without another guess-and-check round trip.
     await popup.screenshot({ path: `/tmp/error-${sheetType}.png`, fullPage: true }).catch(() => {});
     throw err;
+  }
+}
+
+async function logout(page) {
+  // Best-effort - a failed logout shouldn't fail the whole run, since the
+  // report has already been fetched and uploaded successfully by now.
+  try {
+    await robustClick(page, page.getByText('P', { exact: true }));
+    await robustClick(page, page.getByText('Log out'));
+  } catch (err) {
+    console.warn(`Logout did not complete cleanly (non-fatal): ${err.message}`);
   }
 }
 
 async function uploadToApp(sheetType, reportDate, filePath) {
   const fileBuffer = fs.readFileSync(filePath);
   const form = new FormData();
-  form.append('file', new Blob([fileBuffer]), path.basename(filePath));
+  // Prefixed so the report page can later tell "fetched automatically by
+  // GitHub Actions" apart from a manual browser upload or the in-app
+  // "Fetch from Portal" button, without needing a database schema change.
+  const taggedFilename = `github-actions-${sheetType}-${path.basename(filePath)}`;
+  form.append('file', new Blob([fileBuffer]), taggedFilename);
   form.append('reportDate', reportDate);
   form.append('sheetType', sheetType);
 
   const headers = {};
   if (APP_UPLOAD_SECRET) headers['x-upload-secret'] = APP_UPLOAD_SECRET;
 
+  // The app's own /api/upload endpoint validates the parsed data (all 5
+  // sub-divisions present, plausible totals) before storing anything - so
+  // a malformed or wrong file gets rejected here with a clear error,
+  // exactly as it would for a manual upload.
   const res = await fetch(`${APP_URL}/api/upload`, { method: 'POST', body: form, headers });
   const data = await res.json();
   if (!res.ok) throw new Error(`Upload failed for ${sheetType}: ${data.error}`);
@@ -141,55 +196,32 @@ async function main() {
   if (!PORTAL_USERNAME || !PORTAL_PASSWORD || !APP_URL) {
     throw new Error('Missing PORTAL_USERNAME, PORTAL_PASSWORD, or APP_URL environment variables.');
   }
+  if (!SHEET_TYPE || !(SHEET_TYPE in REPORT_LINK_TEXT)) {
+    throw new Error(`SHEET_TYPE must be one of: ${Object.keys(REPORT_LINK_TEXT).join(', ')} (got "${SHEET_TYPE}").`);
+  }
 
-  const reportDate = todayISO();
+  const { from: resolvedFromDate, to: resolvedToDate } = resolveDateRange(SHEET_TYPE, FROM_DATE, TO_DATE);
+  const reportDate = resolvedToDate;
+  console.log(`Fetching ${SHEET_TYPE} for range: ${resolvedFromDate || '(single date)'} -> ${resolvedToDate}`);
   const browser = await chromium.launch();
-  // The portal's own "time out of sync" check appears to assume the
-  // browser is already in India time and does its own comparison math
-  // against that assumption - GitHub Actions runners default to UTC,
-  // which is exactly a 5.5-hour mismatch from IST, triggering a false
-  // positive that blocks login entirely. Setting the browser context's
-  // timezone directly fixes this regardless of the actual runner's
-  // system clock/timezone.
   const context = await browser.newContext({ timezoneId: 'Asia/Kolkata' });
   const page = await context.newPage();
-  const failures = [];
 
   try {
     await login(page);
-
-    // Diagnostic snapshot right after login, before anything else can go
-    // wrong - this alone should reveal whether login actually landed on
-    // the expected post-login page or somewhere unexpected (e.g. still on
-    // a login-adjacent page, or blocked by the overlay).
     await page.screenshot({ path: '/tmp/after-login.png', fullPage: true }).catch(() => {});
 
     const popup = await openDashboard(page);
+    const filePath = await downloadReport(popup, SHEET_TYPE, resolvedFromDate, resolvedToDate);
+    await uploadToApp(SHEET_TYPE, reportDate, filePath);
 
-    for (const sheetType of Object.keys(REPORT_LINK_TEXT)) {
-      try {
-        const filePath = await downloadReport(popup, sheetType);
-        await uploadToApp(sheetType, reportDate, filePath);
-      } catch (err) {
-        console.error(`FAILED: ${sheetType} - ${err.message}`);
-        failures.push({ sheetType, error: err.message });
-      }
-    }
+    await logout(page);
   } catch (err) {
-    // Any failure before the per-report loop (login, opening the
-    // dashboard) - capture what the page actually looked like at that
-    // moment so it can be inspected after the fact, since headless runs
-    // give no other way to see what's on screen.
     await page.screenshot({ path: '/tmp/error-screenshot.png', fullPage: true }).catch(() => {});
     fs.writeFileSync('/tmp/error-page.html', await page.content().catch(() => 'Could not read page content.'));
     throw err;
   } finally {
     await browser.close();
-  }
-
-  if (failures.length > 0) {
-    console.error('Some reports failed:', JSON.stringify(failures, null, 2));
-    process.exit(1); // makes the GitHub Actions run show as failed -> triggers email
   }
 }
 

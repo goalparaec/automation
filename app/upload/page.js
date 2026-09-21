@@ -10,6 +10,9 @@ function todayISO() {
 function UploadRow({ sheetType, label, reportDate }) {
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState(null); // { type, message }
+  const [showRange, setShowRange] = useState(false);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   async function handleFetch() {
     setStatus({ type: 'loading', message: 'Fetching from portal...' });
@@ -17,11 +20,16 @@ function UploadRow({ sheetType, label, reportDate }) {
       const res = await fetch('/api/fetch-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sheetType, reportDate }),
+        body: JSON.stringify({
+          sheetType,
+          reportDate: toDate || reportDate,
+          fromDate: fromDate || null,
+          toDate: toDate || null,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Fetch failed.');
-      setStatus({ type: 'success', message: `Fetched & saved ${data.rowCount} rows for ${reportDate}.` });
+      setStatus({ type: 'success', message: `Fetched & saved ${data.rowCount} rows for ${data.reportDate}.` });
     } catch (err) {
       setStatus({ type: 'error', message: `${err.message} You can still upload the file manually below.` });
     }
@@ -36,14 +44,14 @@ function UploadRow({ sheetType, label, reportDate }) {
 
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('reportDate', reportDate);
+    formData.append('reportDate', toDate || reportDate);
     formData.append('sheetType', sheetType);
 
     try {
       const res = await fetch('/api/upload', { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed.');
-      setStatus({ type: 'success', message: `Saved ${data.rowCount} rows for ${reportDate}.` });
+      setStatus({ type: 'success', message: `Saved ${data.rowCount} rows for ${toDate || reportDate}.` });
     } catch (err) {
       setStatus({ type: 'error', message: err.message });
     }
@@ -55,6 +63,14 @@ function UploadRow({ sheetType, label, reportDate }) {
         <strong style={{ minWidth: 200 }}>{label}</strong>
         <button className="btn" onClick={handleFetch} disabled={status?.type === 'loading'}>
           Fetch from Portal
+        </button>
+        <button
+          className="btn secondary"
+          style={{ padding: '4px 10px', fontSize: 12 }}
+          onClick={() => setShowRange((v) => !v)}
+          type="button"
+        >
+          {showRange ? 'Hide date range' : 'Need a different date/range?'}
         </button>
         <span style={{ color: '#9ca3af', fontSize: 13 }}>or</span>
         <input
@@ -69,10 +85,25 @@ function UploadRow({ sheetType, label, reportDate }) {
           {status?.type === 'loading' ? 'Working...' : 'Upload File'}
         </button>
       </div>
+
+      {showRange && (
+        <div className="field-row" style={{ marginTop: 8, marginBottom: 0 }}>
+          <label>From</label>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          <label>To</label>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          <span style={{ color: '#9ca3af', fontSize: 12 }}>
+            Leave blank to use the report date above. Note: date-range fetching from the portal
+            isn't wired up for every report yet - it'll fall back to the portal's default date
+            until that's recorded for this report.
+          </span>
+        </div>
+      )}
+
       {status && (
         <p
           className={`status ${status.type === 'error' ? 'error' : status.type === 'success' ? 'success' : ''}`}
-          style={{ marginBottom: 0 }}
+          style={{ marginBottom: 0, marginTop: 8 }}
         >
           {status.message}
         </p>
@@ -93,6 +124,11 @@ export default function UploadPage() {
         any reason (portal down, layout changed, session issue), just
         upload the file manually using the option next to it — nothing
         blocks you from continuing that way.
+      </p>
+      <p>
+        Need a report for a date other than today, or a date range? Click
+        <strong> "Need a different date/range?"</strong> next to that
+        report — it only applies to that one report, not all of them.
       </p>
       <p>
         You don't need every report present to generate a report: if a file

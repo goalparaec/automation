@@ -15,21 +15,20 @@ function UploadRow({ sheetType, label, reportDate }) {
   const [toDate, setToDate] = useState('');
 
   async function handleFetch() {
-    setStatus({ type: 'loading', message: 'Fetching from portal...' });
+    setStatus({ type: 'loading', message: 'Triggering fetch on GitHub Actions...' });
     try {
       const res = await fetch('/api/fetch-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sheetType,
-          reportDate: toDate || reportDate,
           fromDate: fromDate || null,
           toDate: toDate || null,
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Fetch failed.');
-      setStatus({ type: 'success', message: `Fetched & saved ${data.rowCount} rows for ${data.reportDate}.` });
+      if (!res.ok) throw new Error(data.error || 'Trigger failed.');
+      setStatus({ type: 'success', message: data.message });
     } catch (err) {
       setStatus({ type: 'error', message: `${err.message} You can still upload the file manually below.` });
     }
@@ -119,7 +118,7 @@ export default function UploadPage() {
     <div className="card">
       <h1>Get today's reports</h1>
       <p>
-        Try <strong>Fetch from Portal</strong> first — it logs into the
+        Try <strong>Fetch from Portal</strong> first — it triggers the automated fetch on GitHub Actions for that
         company portal and pulls the report automatically. If that fails for
         any reason (portal down, layout changed, session issue), just
         upload the file manually using the option next to it — nothing

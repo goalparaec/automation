@@ -1,11 +1,19 @@
 # Fetches and uploads just the IRCA_Bill report. Independent of the
 # other 4 report workflows - this one failing doesn't affect them, and
 # each shows its own separate pass/fail history in the Actions tab.
+#
+# IRCA_Bill always needs the portal's date range set to "1st of the
+# current month through today" - the script computes this fresh on every
+# run automatically (see resolveDateRange() in scrape-and-upload.mjs), so
+# nothing needs to be entered manually for the scheduled run below. The
+# from_date/to_date inputs here only matter if you manually trigger this
+# with specific dates instead.
 name: Fetch IRCA_Bill
 
 on:
-  schedule:
-    - cron: '20 4 * * *'
+  # No automatic schedule for now - triggered via the app's Fetch button
+  # or manually from this tab. The date range (1st of month -> today) is
+  # still computed automatically by the script either way.
   workflow_dispatch:
     inputs:
       from_date:

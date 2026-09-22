@@ -16,7 +16,7 @@ export async function GET(request, { params }) {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="GpEC_Report_${date}.xlsx"`,
+        'Content-Disposition': `attachment; filename="Goalpara_Circle_Report_${date}.xlsx"`,
       },
     });
   } catch (err) {

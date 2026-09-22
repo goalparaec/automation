@@ -5,7 +5,11 @@ name: Fetch Prepaid_Bill
 
 on:
   schedule:
-    - cron: '15 4 * * *'
+    # Runs once a month, on the 1st, at 8:25 PM IST (55 14 1 * * UTC).
+    # Always fetches the FULL PREVIOUS calendar month (e.g. run in
+    # September fetches 1-31 August), computed automatically by the
+    # script every time - never needs manual date updates across months.
+    - cron: '55 14 1 * *'
   workflow_dispatch:
     inputs:
       from_date:

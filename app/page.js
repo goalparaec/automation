@@ -13,7 +13,7 @@ export default function HomePage() {
 
   return (
     <div className="card">
-      <h1>GpEC Daily Report</h1>
+      <h1>Goalpara Circle Reporting System</h1>
       <p>Pick a date to view the generated report, or upload today's workbook first.</p>
       <div className="field-row">
         <label>Report date</label>

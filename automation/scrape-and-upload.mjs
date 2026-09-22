@@ -1,25 +1,7 @@
 // Fetches ONE report from the APDCL ARMS portal and uploads it to the
-// GpEC Daily Report app - the same as uploading it by hand on /upload.
-//
-// Which report to fetch is controlled by the SHEET_TYPE environment
-// variable (set by whichever GitHub Actions workflow calls this - see
-// .github/workflows/daily-fetch-*.yml, one per report). This script
-// handles exactly one report per run by design: isolated failures (one
-// report breaking doesn't block the other 4), independent retriggering,
-// and a separate pass/fail status per report in the Actions tab.
-//
-// REPORT_LINK_TEXT below has real, working entries for 360_Daily and
-// 360_Cum. The other 3 (Converted, Prepaid_Bill, IRCA_Bill) still need
-// their own codegen recording - see the bottom of this file for the
-// steps, or ask for them again if you forget.
-//
-// FROM_DATE / TO_DATE (optional): some reports need a date range selected
-// on the portal itself before downloading, rather than just using today.
-// These are threaded through end-to-end already, but actually using them
-// to fill in each report's date picker on the ARMS portal is a TODO -
-// that needs its own codegen recording per report showing exactly how
-// that report's date picker works, since portals often differ (a single
-// calendar widget, separate from/to fields, a month+year dropdown, etc).
+// Goalpara Circle Reporting System - the same as uploading it by hand on
+// /upload. Which report is controlled by the SHEET_TYPE environment
+// variable (set by whichever GitHub Actions workflow calls this).
 
 import { chromium } from 'playwright';
 import fs from 'node:fs';
@@ -27,45 +9,59 @@ import path from 'node:path';
 
 const PORTAL_USERNAME = process.env.PORTAL_USERNAME;
 const PORTAL_PASSWORD = process.env.PORTAL_PASSWORD;
-const APP_URL = process.env.APP_URL; // e.g. https://your-app.vercel.app
-const APP_UPLOAD_SECRET = process.env.APP_UPLOAD_SECRET; // optional
-const SHEET_TYPE = process.env.SHEET_TYPE; // which single report to fetch this run
-const FROM_DATE = process.env.FROM_DATE || null; // optional, YYYY-MM-DD
-const TO_DATE = process.env.TO_DATE || null; // optional, YYYY-MM-DD
+const APP_URL = process.env.APP_URL;
+const APP_UPLOAD_SECRET = process.env.APP_UPLOAD_SECRET;
+const SHEET_TYPE = process.env.SHEET_TYPE;
+const FROM_DATE = process.env.FROM_DATE || null;
+const TO_DATE = process.env.TO_DATE || null;
 
 const LOGIN_URL = 'https://www.apdclrms.com/cbs/login';
 
 const REPORT_LINK_TEXT = {
   '360_Daily': 'Daily Report',
   '360_Cum': 'Cumulative Monthly Report',
-  Converted: null, // TODO: record this one with codegen
-  Prepaid_Bill: null, // TODO: record this one with codegen
-  IRCA_Bill: null, // TODO: record this one with codegen
+  Converted: null, // TODO: record with codegen
+  IRCA_Bill: null, // TODO: record with codegen
 };
 
 function todayISO() {
-  const now = new Date();
-  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   return ist.toISOString().slice(0, 10);
 }
 
 function firstOfMonthISO() {
-  const now = new Date();
-  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-01`;
 }
 
-// IRCA_Bill always needs "1st of the current month through today" on the
-// portal, not a single fixed date - and that range shifts every single
-// day (today's date changes, and on the 1st of a new month, "1st" itself
-// changes too). This computes it fresh on every run rather than relying
-// on a value that would go stale.
+function lastDayOfMonth(year, monthIndex0) {
+  return new Date(Date.UTC(year, monthIndex0 + 1, 0)).getUTCDate();
+}
+
+function previousMonthRangeISO() {
+  const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  let y = ist.getUTCFullYear();
+  let m = ist.getUTCMonth() - 1; // previous month, 0-indexed
+  if (m < 0) { m = 11; y -= 1; }
+  const lastDay = lastDayOfMonth(y, m);
+  const mm = String(m + 1).padStart(2, '0');
+  return {
+    from: `${y}-${mm}-01`,
+    to: `${y}-${mm}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
+
+// IRCA_Bill: always 1st-of-current-month -> today, recomputed every run.
+// Prepaid_Bill: always the full previous calendar month, recomputed every
+// run (so it stays correct across a month boundary without editing).
 function resolveDateRange(sheetType, explicitFrom, explicitTo) {
-  const to = explicitTo || todayISO();
   if (sheetType === 'IRCA_Bill' && !explicitFrom) {
-    return { from: firstOfMonthISO(), to };
+    return { from: firstOfMonthISO(), to: explicitTo || todayISO() };
   }
-  return { from: explicitFrom, to };
+  if (sheetType === 'Prepaid_Bill' && !explicitFrom) {
+    return previousMonthRangeISO();
+  }
+  return { from: explicitFrom, to: explicitTo || todayISO() };
 }
 
 async function elementAppears(locator, timeoutMs) {
@@ -77,11 +73,6 @@ async function elementAppears(locator, timeoutMs) {
   }
 }
 
-// This portal repeatedly shows a transient overlay (a div with id
-// "outOfSync") that sits on top of whatever's underneath and blocks
-// normal clicks, at seemingly random points throughout the flow. Every
-// click in this script goes through here: wait briefly for the overlay
-// to clear on its own, then force the click through if it's still there.
 async function robustClick(page, locator) {
   const overlay = page.locator('#outOfSync');
   await overlay.waitFor({ state: 'hidden', timeout: 8000 }).catch(() => {});
@@ -104,77 +95,99 @@ async function login(page) {
   }
 }
 
-async function openDashboard(page) {
+async function openArms360Dashboard(page) {
   await robustClick(page, page.locator('span').nth(4));
-
   const [popup] = await Promise.all([
     page.waitForEvent('popup'),
     robustClick(page, page.getByText('ARMS 360 Dashboard')),
   ]);
-  await robustClick(popup, popup.getByText('APDCL Performance'));
   return popup;
 }
 
-// TODO: once a report's date-picker is recorded, fill it in here before
-// clicking into the report - e.g. clicking a "from" field, typing
-// fromDate, clicking a "to" field, typing toDate, then confirming.
-// Left as a no-op for reports that don't need date selection (or when no
-// range applies) so nothing breaks in the meantime. For IRCA_Bill
-// specifically, fromDate/toDate are already computed correctly (1st of
-// month -> today) by the time this is called - this function just needs
-// the actual clicks recorded to put them into the portal's own fields.
-async function selectDateRangeIfNeeded(popup, sheetType, fromDate, toDate) {
-  if (!fromDate && !toDate) return;
-  console.log(`(fromDate=${fromDate} toDate=${toDate} for ${sheetType}, but date-picker automation isn't recorded yet - using the portal's default date instead.)`);
-}
-
-async function downloadReport(popup, sheetType, fromDate, toDate) {
-  const linkText = REPORT_LINK_TEXT[sheetType];
-  if (!linkText) {
-    throw new Error(`No recorded steps yet for "${sheetType}" - record it with codegen and fill in REPORT_LINK_TEXT.`);
-  }
-
-  try {
-    await popup.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
-    await robustClick(popup, popup.getByText(linkText));
-
-    await selectDateRangeIfNeeded(popup, sheetType, fromDate, toDate);
-
-    const [download] = await Promise.all([
-      // 3 minutes - some reports (especially cumulative/monthly ones)
-      // take noticeably longer to generate server-side than a daily one.
-      popup.waitForEvent('download', { timeout: 180000 }),
-      robustClick(popup, popup.getByText('Excel')),
-    ]);
-
-    const savePath = path.join('/tmp', download.suggestedFilename());
-    await download.saveAs(savePath);
-    await robustClick(popup, popup.getByRole('button', { name: 'Close' })).catch(() => {});
-    return savePath;
-  } catch (err) {
-    await popup.screenshot({ path: `/tmp/error-${sheetType}.png`, fullPage: true }).catch(() => {});
-    throw err;
-  }
-}
-
 async function logout(page) {
-  // Best-effort - a failed logout shouldn't fail the whole run, since the
-  // report has already been fetched and uploaded successfully by now.
   try {
-    await robustClick(page, page.getByText('P', { exact: true }));
-    await robustClick(page, page.getByText('Log out'));
+    await robustClick(page, page.locator('span').nth(4));
+    await robustClick(page, page.getByText('Log Out'));
   } catch (err) {
     console.warn(`Logout did not complete cleanly (non-fatal): ${err.message}`);
   }
 }
 
-async function uploadToApp(sheetType, reportDate, filePath) {
+// 360_Daily / 360_Cum: default report, no date selection needed.
+async function downloadViaApdclPerformance(page1, sheetType) {
+  const linkText = REPORT_LINK_TEXT[sheetType];
+  if (!linkText) {
+    throw new Error(`No recorded steps yet for "${sheetType}" - record it with codegen.`);
+  }
+  await robustClick(page1, page1.getByText('APDCL Performance'));
+  await page1.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+  await robustClick(page1, page1.getByText(linkText));
+
+  const [download] = await Promise.all([
+    page1.waitForEvent('download', { timeout: 180000 }),
+    robustClick(page1, page1.getByText('Excel')),
+  ]);
+  const savePath = path.join('/tmp', download.suggestedFilename());
+  await download.saveAs(savePath);
+  await robustClick(page1, page1.getByRole('button', { name: 'Close' })).catch(() => {});
+  return savePath;
+}
+
+// Prepaid_Bill: goes through its own "Prepaid Dashboard" popup (a second
+// popup opened from page1), with a date-range calendar. The calendar
+// appeared already showing the correct (previous) month with no
+// navigation needed when this was recorded - if the portal ever defaults
+// to a different month, this needs a follow-up recording that includes
+// navigating the calendar first.
+async function downloadPrepaidBill(page1, fromDate, toDate) {
+  const [page2] = await Promise.all([
+    page1.waitForEvent('popup'),
+    robustClick(page1, page1.getByText('Prepaid Dashboard')),
+  ]);
+  await robustClick(page2, page2.getByText('Others'));
+
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  const fromLabel = `${from.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })} ${from.getUTCDate()},`;
+  const toLabel = `${to.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })} ${to.getUTCDate()},`;
+
+  await robustClick(page2, page2.getByText('JanuaryFebruaryMarchAprilMayJuneJulyAugustSeptember SunMonTueWedThuFriSat'));
+  await robustClick(page2, page2.getByLabel(fromLabel));
+  await robustClick(page2, page2.getByLabel(toLabel));
+
+  // Confirms the generated summary before downloading (recorded as
+  // clicking the "Unit billed ..." line - the exact number varies every
+  // time, so match on the stable leading text instead).
+  await robustClick(page2, page2.getByText(/Unit billed/));
+
+  const [download] = await Promise.all([
+    page2.waitForEvent('download', { timeout: 180000 }),
+    robustClick(page2, page2.getByText('Excel')),
+  ]);
+  const savePath = path.join('/tmp', download.suggestedFilename());
+  await download.saveAs(savePath);
+  return savePath;
+}
+
+async function downloadReport(page1, sheetType, fromDate, toDate) {
+  try {
+    if (sheetType === 'Prepaid_Bill') {
+      return await downloadPrepaidBill(page1, fromDate, toDate);
+    }
+    return await downloadViaApdclPerformance(page1, sheetType);
+  } catch (err) {
+    await page1.screenshot({ path: `/tmp/error-${sheetType}.png`, fullPage: true }).catch(() => {});
+    throw err;
+  }
+}
+
+async function uploadToApp(sheetType, reportDate, filePath, fromDate, toDate) {
   const fileBuffer = fs.readFileSync(filePath);
   const form = new FormData();
-  // Prefixed so the report page can later tell "fetched automatically by
-  // GitHub Actions" apart from a manual browser upload or the in-app
-  // "Fetch from Portal" button, without needing a database schema change.
-  const taggedFilename = `github-actions-${sheetType}-${path.basename(filePath)}`;
+  // Tags who fetched this and (when relevant) the date range actually
+  // used, so the report page can show it without needing a schema change.
+  const rangeTag = fromDate ? `-range-${fromDate}_to_${toDate}` : '';
+  const taggedFilename = `github-actions-${sheetType}${rangeTag}-${path.basename(filePath)}`;
   form.append('file', new Blob([fileBuffer]), taggedFilename);
   form.append('reportDate', reportDate);
   form.append('sheetType', sheetType);
@@ -182,10 +195,6 @@ async function uploadToApp(sheetType, reportDate, filePath) {
   const headers = {};
   if (APP_UPLOAD_SECRET) headers['x-upload-secret'] = APP_UPLOAD_SECRET;
 
-  // The app's own /api/upload endpoint validates the parsed data (all 5
-  // sub-divisions present, plausible totals) before storing anything - so
-  // a malformed or wrong file gets rejected here with a clear error,
-  // exactly as it would for a manual upload.
   const res = await fetch(`${APP_URL}/api/upload`, { method: 'POST', body: form, headers });
   const data = await res.json();
   if (!res.ok) throw new Error(`Upload failed for ${sheetType}: ${data.error}`);
@@ -196,13 +205,14 @@ async function main() {
   if (!PORTAL_USERNAME || !PORTAL_PASSWORD || !APP_URL) {
     throw new Error('Missing PORTAL_USERNAME, PORTAL_PASSWORD, or APP_URL environment variables.');
   }
-  if (!SHEET_TYPE || !(SHEET_TYPE in REPORT_LINK_TEXT)) {
-    throw new Error(`SHEET_TYPE must be one of: ${Object.keys(REPORT_LINK_TEXT).join(', ')} (got "${SHEET_TYPE}").`);
+  if (!SHEET_TYPE) {
+    throw new Error('SHEET_TYPE environment variable is required.');
   }
 
   const { from: resolvedFromDate, to: resolvedToDate } = resolveDateRange(SHEET_TYPE, FROM_DATE, TO_DATE);
   const reportDate = resolvedToDate;
-  console.log(`Fetching ${SHEET_TYPE} for range: ${resolvedFromDate || '(single date)'} -> ${resolvedToDate}`);
+  console.log(`Fetching ${SHEET_TYPE} for range: ${resolvedFromDate || '(default)'} -> ${resolvedToDate}`);
+
   const browser = await chromium.launch();
   const context = await browser.newContext({ timezoneId: 'Asia/Kolkata' });
   const page = await context.newPage();
@@ -211,9 +221,9 @@ async function main() {
     await login(page);
     await page.screenshot({ path: '/tmp/after-login.png', fullPage: true }).catch(() => {});
 
-    const popup = await openDashboard(page);
-    const filePath = await downloadReport(popup, SHEET_TYPE, resolvedFromDate, resolvedToDate);
-    await uploadToApp(SHEET_TYPE, reportDate, filePath);
+    const page1 = await openArms360Dashboard(page);
+    const filePath = await downloadReport(page1, SHEET_TYPE, resolvedFromDate, resolvedToDate);
+    await uploadToApp(SHEET_TYPE, reportDate, filePath, resolvedFromDate, resolvedToDate);
 
     await logout(page);
   } catch (err) {

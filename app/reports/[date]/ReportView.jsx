@@ -16,6 +16,56 @@ function toDMY(iso) {
   return `${d}-${m}-${y}`;
 }
 
+const SHEET_LABELS = {
+  '360_Daily': '360 Daily Report',
+  '360_Cum': '360 Cumulative Report',
+  Converted: 'Prepaid Converted Report',
+  Prepaid_Bill: 'Prepaid Billing Report',
+  IRCA_Bill: 'IRCA Billing Report',
+};
+
+function formatTimestamp(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const datePart = d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timePart = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+  return `${datePart} ${timePart} IST`;
+}
+
+function DataSourcesPanel({ dataSources, reportDate }) {
+  if (!dataSources || dataSources.length === 0) return null;
+
+  return (
+    <div className="card" style={{ background: '#f8fafc' }}>
+      <h2 style={{ marginTop: 0 }}>Data used for this report</h2>
+      <table className="report-table" style={{ fontSize: 12 }}>
+        <thead>
+          <tr>
+            <th>Report</th><th>Date used</th><th>Fetched/uploaded</th><th>How</th>
+          </tr>
+        </thead>
+        <tbody>
+          {dataSources.map((d) => (
+            <tr key={d.sheetType}>
+              <td>{SHEET_LABELS[d.sheetType] ?? d.sheetType}</td>
+              <td>
+                {d.dateRange
+                  ? `${toDMY(d.dateRange.from)} to ${toDMY(d.dateRange.to)}`
+                  : d.effectiveDate ? toDMY(d.effectiveDate) : '— no data yet —'}
+                {d.isCarriedForward && (
+                  <span style={{ color: '#b45309', fontWeight: 600 }}> (carried forward, not {toDMY(reportDate)})</span>
+                )}
+              </td>
+              <td>{formatTimestamp(d.uploadedAt) ?? '—'}</td>
+              <td>{d.source}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // Excel-style red -> yellow -> green 3-stop scale.
 const RED = [248, 105, 107];
 const YELLOW = [255, 235, 132];
@@ -106,7 +156,7 @@ function ExportableTable({ id, title, children }) {
   );
 }
 
-export default function ReportView({ report }) {
+export default function ReportView({ report, dataSources }) {
   const { reportDate, beCons, be, cePostpaid, ceoSir } = report;
   const dmy = toDMY(reportDate);
 
@@ -133,9 +183,11 @@ export default function ReportView({ report }) {
   return (
     <div>
       <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1 style={{ margin: 0 }}>GpEC Daily Report — {dmy}</h1>
+        <h1 style={{ margin: 0 }}>Goalpara Circle Reporting System — {dmy}</h1>
         <a className="btn" href={`/api/reports/${reportDate}/excel`}>Download Excel (all sheets)</a>
       </div>
+
+      <DataSourcesPanel dataSources={dataSources} reportDate={reportDate} />
 
       <ExportableTable id={`CE_Postpaid_${reportDate}`} title={`COLLECTION of Goalpara Electrical Circle -  ${dmy}`}>
         <table className="report-table">

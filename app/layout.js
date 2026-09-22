@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'GpEC Daily Report',
+  title: 'Goalpara Circle Reporting System',
   description: 'Goalpara Electrical Circle daily report dashboard',
 };
 
@@ -11,7 +11,7 @@ export default function RootLayout({ children }) {
       <body>
         <div className="app-shell">
           <header className="app-header">
-            <a href="/" className="brand">GpEC Daily Report</a>
+            <a href="/" className="brand">Goalpara Circle Reporting System</a>
             <nav>
               <a href="/upload">Upload</a>
               <a href="/manual-inputs">Monthly Inputs</a>

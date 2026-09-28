@@ -11,11 +11,31 @@ import {
   getUploadedEsdCoverage,
 } from '../../../../lib/consumerIndexingDb.js';
 
+// Logging an upload attempt is best-effort - if the audit table itself
+// isn't reachable (e.g. schema not fully set up yet), that must never
+// crash the actual response back to the browser. Without this wrapper, a
+// second failure in here would throw uncaught, which is exactly what
+// produced the "Unexpected end of JSON input" error - Next.js returns an
+// empty/non-JSON body for an unhandled exception, which res.json() then
+// fails to parse on the client.
+async function safeRecordUpload(details) {
+  try {
+    await recordConsumerIndexingUpload(details);
+  } catch (err) {
+    console.error('Failed to record consumer-indexing upload audit row:', err.message);
+  }
+}
+
 export async function POST(request) {
-  const formData = await request.formData();
-  const file = formData.get('file');
-  const reportDate = formData.get('reportDate');
-  const esdName = formData.get('esdName');
+  let file, reportDate, esdName;
+  try {
+    const formData = await request.formData();
+    file = formData.get('file');
+    reportDate = formData.get('reportDate');
+    esdName = formData.get('esdName');
+  } catch (err) {
+    return NextResponse.json({ error: `Could not read the upload request: ${err.message}` }, { status: 400 });
+  }
 
   if (!file || typeof file === 'string') {
     return NextResponse.json({ error: 'No file uploaded.' }, { status: 400 });
@@ -33,7 +53,7 @@ export async function POST(request) {
   try {
     rows = parseConsumerIndexingFile(buffer, esdName);
   } catch (err) {
-    await recordConsumerIndexingUpload({
+    await safeRecordUpload({
       reportDate, esdName, filename: file.name, rowCount: 0, excludedCount: 0,
       status: 'failed', errorMessage: err.message,
     });
@@ -41,7 +61,7 @@ export async function POST(request) {
   }
 
   if (rows.length === 0) {
-    await recordConsumerIndexingUpload({
+    await safeRecordUpload({
       reportDate, esdName, filename: file.name, rowCount: 0, excludedCount: 0,
       status: 'failed', errorMessage: 'No data rows found in this file.',
     });
@@ -53,13 +73,13 @@ export async function POST(request) {
   try {
     const count = await replaceConsumerIndexingRowsForEsd(reportDate, esdName, rows);
     await generateConsumerIndexingSummary(reportDate);
-    await recordConsumerIndexingUpload({
+    await safeRecordUpload({
       reportDate, esdName, filename: file.name, rowCount: count, excludedCount, status: 'success',
     });
     const coverage = await getUploadedEsdCoverage(reportDate);
     return NextResponse.json({ ok: true, reportDate, esdName, rowCount: count, excludedCount, coverage });
   } catch (err) {
-    await recordConsumerIndexingUpload({
+    await safeRecordUpload({
       reportDate, esdName, filename: file.name, rowCount: 0, excludedCount, status: 'failed', errorMessage: err.message,
     });
     return NextResponse.json({ error: err.message }, { status: 500 });

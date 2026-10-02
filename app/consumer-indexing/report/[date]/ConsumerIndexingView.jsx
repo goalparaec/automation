@@ -15,6 +15,13 @@ function toDMY(iso) {
   const [y, m, d] = iso.split('-');
   return `${d}-${m}-${y}`;
 }
+function formatTimestamp(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const datePart = d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timePart = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+  return `${datePart} ${timePart} IST`;
+}
 
 // Excel-style red -> yellow -> green 3-stop scale, matching the daily
 // report's heat-map styling for visual consistency across the app.
@@ -29,16 +36,9 @@ function heatColor(t) {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-function IndexingChart({ rows, reportDate }) {
+function DownloadableCard({ id, title, children }) {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
-
-  const esdRows = rows.filter((r) => r.esd_name !== 'Circle Total' && r.esd_name !== 'Unmapped');
-  const circleRow = rows.find((r) => r.esd_name === 'Circle Total');
-
-  const pcts = esdRows.map((r) => Number(r.indexing_pct) || 0);
-  const min = Math.min(...pcts);
-  const max = Math.max(...pcts);
 
   async function downloadImage() {
     if (!ref.current) return;
@@ -46,7 +46,7 @@ function IndexingChart({ rows, reportDate }) {
     try {
       const dataUrl = await toPng(ref.current, { pixelRatio: 2, backgroundColor: '#ffffff' });
       const link = document.createElement('a');
-      link.download = `Consumer_Indexing_${reportDate}.png`;
+      link.download = `${id}.png`;
       link.href = dataUrl;
       link.click();
     } finally {
@@ -56,113 +56,134 @@ function IndexingChart({ rows, reportDate }) {
 
   return (
     <div className="card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ margin: 0 }}>Consumer Indexing %</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <h2 style={{ margin: 0 }}>{title}</h2>
         <button className="btn secondary" onClick={downloadImage} disabled={busy}>
           {busy ? 'Rendering...' : 'Download image'}
         </button>
       </div>
-
-      <div ref={ref} style={{ background: '#fff', padding: '24px 16px 8px' }}>
-        <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 16, textDecoration: 'underline', marginBottom: 20 }}>
-          Consumer Indexing — Goalpara Electrical Circle — {toDMY(reportDate)}
-        </div>
-
-        {esdRows.map((r) => {
-          const p = Number(r.indexing_pct) || 0;
-          const t = max === min ? 1 : (p - min) / (max - min);
-          const color = heatColor(t);
-          return (
-            <div key={r.esd_name} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-              <div style={{ width: 100, fontSize: 13, fontWeight: 600, textAlign: 'right' }}>{r.esd_name}</div>
-              <div style={{ flex: 1, background: '#eef1f5', borderRadius: 6, height: 28, position: 'relative', overflow: 'hidden' }}>
-                <div
-                  style={{
-                    width: `${Math.max(p * 100, 3)}%`,
-                    background: color,
-                    height: '100%',
-                    borderRadius: 6,
-                    transition: 'width 0.3s',
-                  }}
-                />
-              </div>
-              <div style={{ width: 64, fontSize: 13, fontWeight: 700 }}>{pct(r.indexing_pct)}</div>
-            </div>
-          );
-        })}
-
-        {circleRow && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 20, paddingTop: 14, borderTop: '2px solid #333' }}>
-            <div style={{ width: 100, fontSize: 14, fontWeight: 700, textAlign: 'right' }}>Circle Total</div>
-            <div style={{ flex: 1, background: '#eef1f5', borderRadius: 6, height: 32, position: 'relative', overflow: 'hidden' }}>
-              <div
-                style={{
-                  width: `${Math.max((Number(circleRow.indexing_pct) || 0) * 100, 3)}%`,
-                  background: '#1f4e79',
-                  height: '100%',
-                  borderRadius: 6,
-                }}
-              />
-            </div>
-            <div style={{ width: 64, fontSize: 14, fontWeight: 800 }}>{pct(circleRow.indexing_pct)}</div>
-          </div>
-        )}
+      <div ref={ref} style={{ background: '#fff', padding: '20px 16px 12px' }}>
+        {children}
       </div>
     </div>
   );
 }
 
-export default function ConsumerIndexingView({ reportDate, rows }) {
+function IndexingChart({ rows }) {
+  const esdRows = rows.filter((r) => r.esd_name !== 'Circle Total');
+  const circleRow = rows.find((r) => r.esd_name === 'Circle Total');
+  const pcts = esdRows.map((r) => Number(r.indexing_pct) || 0);
+  const min = Math.min(...pcts);
+  const max = Math.min(...pcts) === Math.max(...pcts) ? min + 1 : Math.max(...pcts);
+
+  return (
+    <>
+      {esdRows.map((r) => {
+        const p = Number(r.indexing_pct) || 0;
+        const t = max === min ? 1 : (p - min) / (max - min);
+        const color = heatColor(t);
+        return (
+          <div key={r.esd_name} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+            <div style={{ width: 100, fontSize: 13, fontWeight: 600, textAlign: 'right' }}>{r.esd_name}</div>
+            <div style={{ flex: 1, background: '#eef1f5', borderRadius: 6, height: 28, overflow: 'hidden' }}>
+              <div style={{ width: `${Math.max(p * 100, 3)}%`, background: color, height: '100%', borderRadius: 6 }} />
+            </div>
+            <div style={{ width: 64, fontSize: 13, fontWeight: 700 }}>{pct(r.indexing_pct)}</div>
+          </div>
+        );
+      })}
+      {circleRow && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 20, paddingTop: 14, borderTop: '2px solid #333' }}>
+          <div style={{ width: 100, fontSize: 14, fontWeight: 700, textAlign: 'right' }}>Circle Total</div>
+          <div style={{ flex: 1, background: '#eef1f5', borderRadius: 6, height: 32, overflow: 'hidden' }}>
+            <div style={{ width: `${Math.max((Number(circleRow.indexing_pct) || 0) * 100, 3)}%`, background: '#1f4e79', height: '100%', borderRadius: 6 }} />
+          </div>
+          <div style={{ width: 64, fontSize: 14, fontWeight: 800 }}>{pct(circleRow.indexing_pct)}</div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function SummaryTable({ rows }) {
+  return (
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+      <thead>
+        <tr>
+          {['Sub-Division', 'Total DTRs', 'Indexed DTRs', 'Total Consumers', 'Indexed Consumers', 'Consumer Indexing %', 'Total Indexed DTRs with Zero Consumer'].map((h, i) => (
+            <th
+              key={h}
+              style={{
+                textAlign: i === 0 ? 'left' : 'right',
+                padding: '10px 14px',
+                background: '#1f4e79',
+                color: '#fff',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => {
+          const isTotal = r.esd_name === 'Circle Total';
+          return (
+            <tr
+              key={r.esd_name}
+              style={{
+                background: isTotal ? '#fff2cc' : i % 2 === 0 ? '#ffffff' : '#f7f9fb',
+                fontWeight: isTotal ? 700 : 400,
+              }}
+            >
+              <td style={{ padding: '10px 14px', textAlign: 'left', borderTop: isTotal ? '2px solid #1f4e79' : '1px solid #e5e7eb' }}>{r.esd_name}</td>
+              <td style={{ padding: '10px 14px', textAlign: 'right', borderTop: isTotal ? '2px solid #1f4e79' : '1px solid #e5e7eb' }}>{num(r.total_dtrs)}</td>
+              <td style={{ padding: '10px 14px', textAlign: 'right', borderTop: isTotal ? '2px solid #1f4e79' : '1px solid #e5e7eb' }}>{num(r.indexed_dtrs)}</td>
+              <td style={{ padding: '10px 14px', textAlign: 'right', borderTop: isTotal ? '2px solid #1f4e79' : '1px solid #e5e7eb' }}>{num(r.total_consumers)}</td>
+              <td style={{ padding: '10px 14px', textAlign: 'right', borderTop: isTotal ? '2px solid #1f4e79' : '1px solid #e5e7eb' }}>{num(r.indexed_consumers)}</td>
+              <td style={{ padding: '10px 14px', textAlign: 'right', borderTop: isTotal ? '2px solid #1f4e79' : '1px solid #e5e7eb' }}>{pct(r.indexing_pct)}</td>
+              <td style={{ padding: '10px 14px', textAlign: 'right', borderTop: isTotal ? '2px solid #1f4e79' : '1px solid #e5e7eb' }}>{num(r.indexed_dtrs_zero_consumers)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+export default function ConsumerIndexingView({ reportDate, rows, lastUpdated }) {
   return (
     <div>
       <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1 style={{ margin: 0 }}>Consumer Indexing Report — {toDMY(reportDate)}</h1>
+        <div>
+          <h1 style={{ margin: 0 }}>Consumer Indexing Report — {toDMY(reportDate)}</h1>
+          {lastUpdated && (
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: '#6b7280' }}>
+              Last updated: {formatTimestamp(lastUpdated)}
+            </p>
+          )}
+        </div>
         <a className="btn" href={`/api/consumer-indexing/report/${reportDate}/excel`}>Download Excel</a>
       </div>
 
-      <IndexingChart rows={rows} reportDate={reportDate} />
+      <DownloadableCard id={`Consumer_Indexing_Chart_${reportDate}`} title="Consumer Indexing %">
+        <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 16, textDecoration: 'underline', marginBottom: 20 }}>
+          Consumer Indexing — Goalpara Electrical Circle — {toDMY(reportDate)}
+        </div>
+        <IndexingChart rows={rows} />
+      </DownloadableCard>
+
+      <DownloadableCard id={`Consumer_Indexing_Summary_${reportDate}`} title="Summary">
+        <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 16, textDecoration: 'underline', marginBottom: 16 }}>
+          Consumer Indexing Summary — Goalpara Electrical Circle — {toDMY(reportDate)}
+        </div>
+        <SummaryTable rows={rows} />
+      </DownloadableCard>
 
       <div className="card">
-        <table className="report-table">
-          <thead>
-            <tr>
-              <th>Sub-Division</th>
-              <th>Total DTRs</th>
-              <th>Total Consumers</th>
-              <th>Indexed</th>
-              <th>Un-Indexed</th>
-              <th>Indexing %</th>
-              <th>Indexed DTRs w/ 0 Consumers</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr
-                key={r.esd_name}
-                className={r.esd_name === 'Circle Total' ? 'total-row' : ''}
-                style={r.esd_name === 'Unmapped' ? { color: '#9ca3af', fontStyle: 'italic' } : undefined}
-              >
-                <td>{r.esd_name}</td>
-                <td>{num(r.total_dtrs)}</td>
-                <td>{num(r.total_consumers)}</td>
-                <td>{num(r.indexed_consumers)}</td>
-                <td>{num(r.unindexed_consumers)}</td>
-                <td>{pct(r.indexing_pct)}</td>
-                <td>{num(r.indexed_dtrs_zero_consumers)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>
-          "Unmapped" rows didn't match a known sub-division's feeder-name
-          prefix (038-042) and aren't GHDT-marked either - worth a quick
-          look, but excluded from the Circle Total above. DTRs with "GHDT"
-          in their DTR No. are excluded from every row entirely.
-        </p>
-      </div>
-
-      <div className="card">
-        <a className="btn secondary" href="/consumer-indexing">Upload a different date</a>
+        <a className="btn secondary" href="/consumer-indexing">Back to upload page</a>
       </div>
     </div>
   );

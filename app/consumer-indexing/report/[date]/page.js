@@ -51,5 +51,5 @@ export default async function ConsumerIndexingReportPage({ params }) {
     );
   }
 
-  return <ConsumerIndexingView reportDate={date} rows={rows} />;
+  return <ConsumerIndexingView reportDate={date} rows={rows} lastUpdated={coverage.lastUpdated} />;
 }

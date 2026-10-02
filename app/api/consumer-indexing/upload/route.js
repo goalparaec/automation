@@ -12,12 +12,10 @@ import {
 } from '../../../../lib/consumerIndexingDb.js';
 
 // Logging an upload attempt is best-effort - if the audit table itself
-// isn't reachable (e.g. schema not fully set up yet), that must never
-// crash the actual response back to the browser. Without this wrapper, a
-// second failure in here would throw uncaught, which is exactly what
-// produced the "Unexpected end of JSON input" error - Next.js returns an
-// empty/non-JSON body for an unhandled exception, which res.json() then
-// fails to parse on the client.
+// isn't reachable, that must never crash the actual response back to the
+// browser. Without this wrapper, a second failure in here would throw
+// uncaught, producing an empty/non-JSON response that res.json() then
+// fails to parse on the client ("Unexpected end of JSON input").
 async function safeRecordUpload(details) {
   try {
     await recordConsumerIndexingUpload(details);

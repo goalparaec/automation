@@ -2,9 +2,8 @@
 // GitHub Actions workflow remotely rather than running a browser inside
 // Vercel. The workflow itself doesn't exist yet - this needs a codegen
 // recording of the portal's Consumer Indexing Report download flow first,
-// per ESD (same process as the other reports). Until then this returns a
-// clear error and the person falls back to manual upload for that ESD,
-// which is fully working today.
+// per ESD. Until then this returns a clear error and the person falls
+// back to manual upload for that ESD, which is fully working today.
 export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';

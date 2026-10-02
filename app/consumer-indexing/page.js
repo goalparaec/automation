@@ -7,6 +7,17 @@ const ESD_NAMES = ['Dhupdhara', 'Dudhnoi', 'Goalpara', 'Lakhipur', 'Mankachar'];
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
+function toDMY(iso) {
+  const [y, m, d] = iso.split('-');
+  return `${d}-${m}-${y}`;
+}
+function formatTimestamp(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const datePart = d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timePart = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+  return `${datePart} ${timePart} IST`;
+}
 
 function CoverageTracker({ coverage }) {
   if (!coverage) return null;
@@ -26,9 +37,39 @@ function CoverageTracker({ coverage }) {
         </p>
       ) : (
         <p style={{ marginBottom: 0, marginTop: 8, color: '#b45309' }}>
-          Waiting on: {coverage.missing.join(', ')}. The report only becomes available once all 5 are uploaded for this same date.
+          Waiting on: {coverage.missing.join(', ')}.
         </p>
       )}
+    </div>
+  );
+}
+
+function ReportsList({ reports }) {
+  if (!reports || reports.length === 0) return null;
+  return (
+    <div className="card">
+      <h2 style={{ marginTop: 0 }}>Completed reports</h2>
+      <p style={{ fontSize: 13, color: '#6b7280', marginTop: -8 }}>
+        Every date where all 5 ESDs have been uploaded stays here and can be reopened any time.
+        Re-uploading any ESD for a date updates that same report in place - the latest data always wins.
+      </p>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <tbody>
+          {reports.map((r, i) => (
+            <tr key={r.date} style={{ borderTop: '1px solid #e5e7eb' }}>
+              <td style={{ padding: '8px 4px', fontWeight: i === 0 ? 700 : 400 }}>
+                {toDMY(r.date)} {i === 0 && <span style={{ color: '#15803d', fontSize: 12 }}>(latest)</span>}
+              </td>
+              <td style={{ padding: '8px 4px', color: '#6b7280', fontSize: 13 }}>
+                Last updated: {formatTimestamp(r.lastUpdated)}
+              </td>
+              <td style={{ padding: '8px 4px', textAlign: 'right' }}>
+                <a className="btn secondary" href={`/consumer-indexing/report/${r.date}`}>View</a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -111,7 +152,7 @@ function UploadRow({ esdName, reportDate, onUploaded }) {
 export default function ConsumerIndexingUploadPage() {
   const [reportDate, setReportDate] = useState(todayISO());
   const [coverage, setCoverage] = useState(null);
-  const [latestComplete, setLatestComplete] = useState(null);
+  const [reports, setReports] = useState([]);
 
   const loadCoverage = useCallback(async (date) => {
     try {
@@ -123,28 +164,32 @@ export default function ConsumerIndexingUploadPage() {
     }
   }, []);
 
+  const loadReports = useCallback(async () => {
+    try {
+      const res = await fetch('/api/consumer-indexing/reports');
+      const data = await res.json();
+      if (res.ok) setReports(data.reports);
+    } catch {
+      // non-fatal
+    }
+  }, []);
+
   useEffect(() => {
     loadCoverage(reportDate);
   }, [reportDate, loadCoverage]);
 
   useEffect(() => {
-    fetch('/api/consumer-indexing/latest-complete')
-      .then((r) => r.json())
-      .then((data) => setLatestComplete(data.date ?? null))
-      .catch(() => {});
-  }, []);
+    loadReports();
+  }, [loadReports]);
+
+  function handleUploaded(newCoverage) {
+    setCoverage(newCoverage);
+    if (newCoverage?.isComplete) loadReports();
+  }
 
   return (
     <div className="card">
       <h1>Consumer Indexing Report</h1>
-
-      {latestComplete && (
-        <p>
-          <a href={`/consumer-indexing/report/${latestComplete}`}>
-            View latest complete report ({latestComplete})
-          </a>
-        </p>
-      )}
 
       <div className="field-row">
         <label>Report date</label>
@@ -155,7 +200,7 @@ export default function ConsumerIndexingUploadPage() {
 
       <div style={{ marginTop: 10 }}>
         {ESD_NAMES.map((esdName) => (
-          <UploadRow key={esdName} esdName={esdName} reportDate={reportDate} onUploaded={setCoverage} />
+          <UploadRow key={esdName} esdName={esdName} reportDate={reportDate} onUploaded={handleUploaded} />
         ))}
       </div>
 
@@ -168,6 +213,8 @@ export default function ConsumerIndexingUploadPage() {
           </span>
         )}
       </div>
+
+      <ReportsList reports={reports} />
     </div>
   );
 }

@@ -71,8 +71,8 @@ function DownloadableCard({ fileName, children }) {
   }
 
   return (
-    <div style={{ marginBottom: 20 }}>
-      <div ref={ref} style={{ display: 'inline-block', width: '100%' }}>
+    <div style={{ marginBottom: 20, textAlign: 'center' }}>
+      <div ref={ref} style={{ display: 'inline-block' }}>
         {children}
       </div>
       <div style={{ marginTop: 8 }}>
@@ -98,7 +98,8 @@ function DownloadableCard({ fileName, children }) {
 
 function IndexingChart({ rows }) {
   const pctValues = rows.map((r) => (r.indexing_pct == null ? 0 : Number(r.indexing_pct) * 100));
-  const maxPct = Math.max(100, ...pctValues);
+  const maxPct = Math.max(...pctValues);
+  const minPct = Math.min(...pctValues);
 
   return (
     <div
@@ -137,7 +138,7 @@ function IndexingChart({ rows }) {
                   width: `${widthPct}%`,
                   height: '100%',
                   borderRadius: 4,
-                  background: heatColor(value, 0, 100),
+                  background: heatColor(value, minPct, maxPct),
                 }}
               />
             </div>
@@ -175,7 +176,7 @@ function SummaryTable({ rows }) {
       }}
     >
       <h3 style={{ margin: '0 0 8px 0', fontSize: 14, color: '#1f4e79', textAlign: 'center' }}>
-        Consumer Indexing Summary
+        Consumer Indexing Summary - Goalpara Electrical Circle
       </h3>
       <table
         style={{

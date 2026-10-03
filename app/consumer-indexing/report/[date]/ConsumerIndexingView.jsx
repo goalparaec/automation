@@ -34,6 +34,12 @@ function toDMY(dateStr) {
   return `${d}-${m}-${y}`;
 }
 
+function toDDMMYYYY(dateStr) {
+  if (!dateStr) return '-';
+  const [y, m, d] = dateStr.split('-');
+  return `${d}.${m}.${y}`;
+}
+
 function formatTimestamp(ts) {
   if (!ts) return '-';
   const d = new Date(ts);
@@ -162,7 +168,7 @@ const COLUMNS = [
   { key: 'indexed_dtrs_zero_consumers', label: 'Total Indexed DTRs with Zero Consumer' },
 ];
 
-function SummaryTable({ rows }) {
+function SummaryTable({ rows, reportDate }) {
   return (
     <div
       style={{
@@ -176,7 +182,7 @@ function SummaryTable({ rows }) {
       }}
     >
       <h3 style={{ margin: '0 0 8px 0', fontSize: 14, color: '#1f4e79', textAlign: 'center' }}>
-        Consumer Indexing Summary - Goalpara Electrical Circle
+        Consumer Indexing Summary - Goalpara Electrical Circle as on {toDDMMYYYY(reportDate)}
       </h3>
       <table
         style={{
@@ -292,7 +298,7 @@ export default function ConsumerIndexingView({ reportDate, rows, lastUpdated }) 
       </DownloadableCard>
 
       <DownloadableCard fileName={`consumer-indexing-summary-${reportDate}.png`}>
-        <SummaryTable rows={rows} />
+        <SummaryTable rows={rows} reportDate={reportDate} />
       </DownloadableCard>
 
       <a href="/consumer-indexing" style={{ fontSize: 13, color: '#1f4e79' }}>

@@ -71,6 +71,7 @@ export default function PrepaidRecoveryUpload() {
         const code = summaryRow.esdCode;
         const callListRows = merged.callListRows.filter((r) => r.esdCode === code);
         const paymentsRows = merged.paymentsRows.filter((r) => r.esdCode === code);
+        const excludedRows = merged.excludedRows.filter((r) => r.esdCode === code);
         const res = await fetch('/api/prepaid-recovery/upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -81,6 +82,7 @@ export default function PrepaidRecoveryUpload() {
             summary: summaryRow,
             callListRows,
             paymentsRows,
+            excludedRows,
           }),
         });
         if (!res.ok) {

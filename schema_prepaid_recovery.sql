@@ -8,12 +8,12 @@ create table if not exists prepaid_recovery_esd_map (
 );
 
 insert into prepaid_recovery_esd_map (esd_code, esd_label) values
-  ('038', 'ESD-038'),
-  ('039', 'ESD-039'),
+  ('038', 'Dhupdhara'),
+  ('039', 'Dudhnoi'),
   ('040', 'Goalpara'),
   ('041', 'Lakhipur'),
-  ('042', 'ESD-042')
-on conflict (esd_code) do nothing;
+  ('042', 'Mankachar')
+on conflict (esd_code) do update set esd_label = excluded.esd_label, updated_at = now();
 
 -- Daily snapshot of the summary tab, one row per (report_date, esd_code).
 create table if not exists prepaid_recovery_summary (
@@ -80,6 +80,28 @@ create table if not exists prepaid_recovery_payments (
 
 create index if not exists idx_payments_date_esd on prepaid_recovery_payments (report_date, esd_code);
 
+-- Consumers dropped by the scope filters (govt / PDC / tower / category /
+-- GHDT / name-keyword). Kept OUT of the normal summary/call-list/payments,
+-- but tracked here so they can be reviewed separately on request. Replaced
+-- wholesale per (report_date, esd_code) on every upload, same as the call list.
+create table if not exists prepaid_recovery_excluded (
+  id bigint generated always as identity primary key,
+  report_date date not null,
+  esd_code text not null,
+  consumer_no text not null,
+  consumer_name text,
+  category_name text,
+  connection_status text,
+  phone_no text,
+  balance numeric,
+  reason_category text not null,
+  reason_detail text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_excluded_date_esd on prepaid_recovery_excluded (report_date, esd_code);
+create index if not exists idx_excluded_reason on prepaid_recovery_excluded (reason_category);
+
 -- Telecalling remarks, keyed by consumer so they survive the next day's
 -- upload and are shown beside the same consumer in tomorrow's call list.
 create table if not exists prepaid_recovery_remarks (
@@ -95,6 +117,7 @@ alter table prepaid_recovery_esd_map enable row level security;
 alter table prepaid_recovery_summary enable row level security;
 alter table prepaid_recovery_calllist enable row level security;
 alter table prepaid_recovery_payments enable row level security;
+alter table prepaid_recovery_excluded enable row level security;
 alter table prepaid_recovery_remarks enable row level security;
 -- No public policies: all access goes through API routes using the
 -- service_role key on the server, same as the rest of this app. Note:

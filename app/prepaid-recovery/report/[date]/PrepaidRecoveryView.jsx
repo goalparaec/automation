@@ -239,7 +239,154 @@ function CallListTab({ reportDate, callListRows, esdMap }) {
   );
 }
 
-export default function PrepaidRecoveryView({ reportDate, summaryRows, paymentsRows, callListRows, esdMap }) {
+function ExcludedTab({ reportDate, excludedRows, esdMap }) {
+  const [esdFilter, setEsdFilter] = useState('');
+  const [reasonFilter, setReasonFilter] = useState('');
+  const [visibleCount, setVisibleCount] = useState(300);
+
+  const reasons = useMemo(() => [...new Set(excludedRows.map((r) => r.reason_category))].sort(), [excludedRows]);
+
+  const byReasonCount = useMemo(() => {
+    const m = {};
+    for (const r of excludedRows) m[r.reason_category] = (m[r.reason_category] || 0) + 1;
+    return m;
+  }, [excludedRows]);
+
+  const filtered = useMemo(() => excludedRows.filter((r) => {
+    if (esdFilter && r.esd_code !== esdFilter) return false;
+    if (reasonFilter && r.reason_category !== reasonFilter) return false;
+    return true;
+  }), [excludedRows, esdFilter, reasonFilter]);
+
+  return (
+    <div>
+      <p style={{ color: '#6b7280', fontSize: 13 }}>
+        These consumers are dropped by the scope rules (government, PDC, tower/department, category not in
+        scope, GHDT, or name keyword) and never appear in the Summary, Payments or Call List tabs. This tab
+        is only for review.
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+        {reasons.map((r) => (
+          <span key={r} style={{ background: '#f0f4f8', borderRadius: 999, padding: '6px 12px', fontSize: 13 }}>
+            {r}: {byReasonCount[r]}
+          </span>
+        ))}
+        <span style={{ background: '#fff2cc', borderRadius: 999, padding: '6px 12px', fontSize: 13, fontWeight: 700 }}>
+          Total: {excludedRows.length}
+        </span>
+      </div>
+      <div className="no-print field-row" style={{ marginBottom: 10 }}>
+        <select value={esdFilter} onChange={(e) => setEsdFilter(e.target.value)}>
+          <option value="">All ESDs</option>
+          {Object.entries(esdMap).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+        </select>
+        <select value={reasonFilter} onChange={(e) => setReasonFilter(e.target.value)}>
+          <option value="">All reasons</option>
+          {reasons.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <a className="btn" href={`/api/prepaid-recovery/export/excluded/${reportDate}`}>Download Excel</a>
+      </div>
+      <table className="report-table print-table">
+        <thead>
+          <tr><th>ESD</th><th>Consumer No</th><th>Name</th><th>Category</th><th>Status</th><th>Phone</th><th>Balance</th><th>Reason</th><th>Detail</th></tr>
+        </thead>
+        <tbody>
+          {filtered.slice(0, visibleCount).map((r, i) => (
+            <tr key={`${r.consumer_no}-${i}`}>
+              <td>{esdMap[r.esd_code] || r.esd_code}</td>
+              <td>{r.consumer_no}</td>
+              <td>{r.consumer_name}</td>
+              <td>{r.category_name}</td>
+              <td>{r.connection_status}</td>
+              <td>{r.phone_no}</td>
+              <td>{inr(r.balance)}</td>
+              <td>{r.reason_category}</td>
+              <td>{r.reason_detail}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {visibleCount < filtered.length && (
+        <button className="btn secondary no-print" style={{ marginTop: 10 }} onClick={() => setVisibleCount((v) => v + 300)}>
+          Show more ({filtered.length - visibleCount} remaining)
+        </button>
+      )}
+    </div>
+  );
+}
+
+function StillUnpaidTab({ reportDate, previousDate, stillUnpaidTracker, esdMap }) {
+  const [esdFilter, setEsdFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [visibleCount, setVisibleCount] = useState(300);
+
+  if (!previousDate) {
+    return <p>No earlier report exists yet to compare against — this will show up once a second day is uploaded.</p>;
+  }
+
+  const counts = useMemo(() => {
+    const m = { 'Still unpaid': 0, 'Paid since last upload': 0, 'No longer in report': 0 };
+    for (const r of stillUnpaidTracker) m[r.status] = (m[r.status] || 0) + 1;
+    return m;
+  }, [stillUnpaidTracker]);
+
+  const filtered = useMemo(() => stillUnpaidTracker.filter((r) => {
+    if (esdFilter && r.esdCode !== esdFilter) return false;
+    if (statusFilter && r.status !== statusFilter) return false;
+    return true;
+  }), [stillUnpaidTracker, esdFilter, statusFilter]);
+
+  return (
+    <div>
+      <p style={{ color: '#6b7280', fontSize: 13 }}>
+        Comparing today&apos;s ({reportDate}) call list to the previous report on {previousDate}.
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+        <span style={{ background: '#f8cbcb', borderRadius: 999, padding: '6px 12px', fontSize: 13 }}>Still unpaid: {counts['Still unpaid']}</span>
+        <span style={{ background: '#d6f0db', borderRadius: 999, padding: '6px 12px', fontSize: 13 }}>Paid since last upload: {counts['Paid since last upload']}</span>
+        <span style={{ background: '#f0f4f8', borderRadius: 999, padding: '6px 12px', fontSize: 13 }}>No longer in report: {counts['No longer in report']}</span>
+      </div>
+      <div className="no-print field-row" style={{ marginBottom: 10 }}>
+        <select value={esdFilter} onChange={(e) => setEsdFilter(e.target.value)}>
+          <option value="">All ESDs</option>
+          {Object.entries(esdMap).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="">All statuses</option>
+          <option value="Still unpaid">Still unpaid</option>
+          <option value="Paid since last upload">Paid since last upload</option>
+          <option value="No longer in report">No longer in report</option>
+        </select>
+      </div>
+      <table className="report-table print-table">
+        <thead>
+          <tr><th>ESD</th><th>Consumer No</th><th>Name</th><th>Balance ({previousDate})</th><th>Band ({previousDate})</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          {filtered.slice(0, visibleCount).map((r, i) => (
+            <tr key={`${r.consumerNo}-${i}`}>
+              <td>{esdMap[r.esdCode] || r.esdCode}</td>
+              <td>{r.consumerNo}</td>
+              <td>{r.consumerName}</td>
+              <td>{inr(r.balance)}</td>
+              <td>{r.band}</td>
+              <td>{r.status}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {visibleCount < filtered.length && (
+        <button className="btn secondary no-print" style={{ marginTop: 10 }} onClick={() => setVisibleCount((v) => v + 300)}>
+          Show more ({filtered.length - visibleCount} remaining)
+        </button>
+      )}
+    </div>
+  );
+}
+
+export default function PrepaidRecoveryView({
+  reportDate, summaryRows, paymentsRows, callListRows, excludedRows, esdMap, previousDate, stillUnpaidTracker,
+}) {
   const [tab, setTab] = useState('summary');
 
   return (
@@ -250,16 +397,22 @@ export default function PrepaidRecoveryView({ reportDate, summaryRows, paymentsR
         <a href="/prepaid-recovery" className="no-print">← Back to upload page</a>
       </div>
 
-      <div className="tabs no-print" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+      <div className="tabs no-print" style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <button className={`btn ${tab === 'summary' ? '' : 'secondary'}`} onClick={() => setTab('summary')}>Summary</button>
         <button className={`btn ${tab === 'payments' ? '' : 'secondary'}`} onClick={() => setTab('payments')}>Payments</button>
         <button className={`btn ${tab === 'calllist' ? '' : 'secondary'}`} onClick={() => setTab('calllist')}>Call List</button>
+        <button className={`btn ${tab === 'stillunpaid' ? '' : 'secondary'}`} onClick={() => setTab('stillunpaid')}>Still Unpaid Tracker</button>
+        <button className={`btn ${tab === 'excluded' ? '' : 'secondary'}`} onClick={() => setTab('excluded')}>Excluded</button>
       </div>
 
       <div className="card">
         {tab === 'summary' && <SummaryTab reportDate={reportDate} summaryRows={summaryRows} />}
         {tab === 'payments' && <PaymentsTab reportDate={reportDate} paymentsRows={paymentsRows} />}
         {tab === 'calllist' && <CallListTab reportDate={reportDate} callListRows={callListRows} esdMap={esdMap} />}
+        {tab === 'stillunpaid' && (
+          <StillUnpaidTab reportDate={reportDate} previousDate={previousDate} stillUnpaidTracker={stillUnpaidTracker} esdMap={esdMap} />
+        )}
+        {tab === 'excluded' && <ExcludedTab reportDate={reportDate} excludedRows={excludedRows} esdMap={esdMap} />}
       </div>
     </div>
   );

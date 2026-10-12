@@ -19,6 +19,7 @@ export async function GET(request, { params }) {
       acc.callListTotal += r.call_list_total;
       acc.negTotal += Number(r.neg_total);
       acc.noPhoneExcluded += r.no_phone_excluded;
+      acc.goodStandingCount += r.good_standing_count || 0;
       acc.paidYesterdayCount += r.paid_yesterday_count;
       acc.paidYesterdayAmount += Number(r.paid_yesterday_amount);
       acc.paidTodayCount += r.paid_today_count;
@@ -27,7 +28,7 @@ export async function GET(request, { params }) {
       return acc;
     },
     { band36: 0, band612: 0, bandAbove1y: 0, bandNoPayment: 0, callListTotal: 0, negTotal: 0,
-      noPhoneExcluded: 0, paidYesterdayCount: 0, paidYesterdayAmount: 0, paidTodayCount: 0,
+      noPhoneExcluded: 0, goodStandingCount: 0, paidYesterdayCount: 0, paidYesterdayAmount: 0, paidTodayCount: 0,
       paidTodayAmount: 0, rows: 0 }
   );
 

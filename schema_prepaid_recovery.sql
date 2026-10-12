@@ -1,6 +1,11 @@
 -- Prepaid Recovery module. Safe to re-run: uses create-if-not-exists /
 -- create-or-replace throughout, and never drops existing data.
 
+-- If prepaid_recovery_summary already exists from an earlier version of
+-- this schema, add the new column in place rather than recreating it.
+alter table if exists prepaid_recovery_summary
+  add column if not exists good_standing_count integer not null default 0;
+
 create table if not exists prepaid_recovery_esd_map (
   esd_code text primary key,
   esd_label text not null,
@@ -31,6 +36,7 @@ create table if not exists prepaid_recovery_summary (
   neg_band_no_payment numeric not null default 0,
   neg_total numeric not null default 0,
   no_phone_excluded integer not null default 0,
+  good_standing_count integer not null default 0,
   paid_yesterday_count integer not null default 0,
   paid_yesterday_amount numeric not null default 0,
   paid_today_count integer not null default 0,
@@ -102,6 +108,28 @@ create table if not exists prepaid_recovery_excluded (
 create index if not exists idx_excluded_date_esd on prepaid_recovery_excluded (report_date, esd_code);
 create index if not exists idx_excluded_reason on prepaid_recovery_excluded (reason_category);
 
+-- Every consumer who is eligible but simply isn't a defaulter right now
+-- (balance above the threshold, or recharged within the grace period).
+-- Together with the call list, payments and excluded tables, this makes
+-- every single consumer in the uploaded files locatable somewhere. Given
+-- the volume (can be 200k+ rows/day), only the two most recent report
+-- dates are ever kept — see prune_prepaid_recovery_old_dates() below.
+create table if not exists prepaid_recovery_good_standing (
+  id bigint generated always as identity primary key,
+  report_date date not null,
+  esd_code text not null,
+  consumer_no text not null,
+  consumer_name text,
+  category_name text,
+  balance numeric,
+  last_payment_date date,
+  skip_reason text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_good_standing_date_esd on prepaid_recovery_good_standing (report_date, esd_code);
+create index if not exists idx_good_standing_consumer on prepaid_recovery_good_standing (consumer_no);
+
 -- Telecalling remarks, keyed by consumer so they survive the next day's
 -- upload and are shown beside the same consumer in tomorrow's call list.
 create table if not exists prepaid_recovery_remarks (
@@ -118,6 +146,7 @@ alter table prepaid_recovery_summary enable row level security;
 alter table prepaid_recovery_calllist enable row level security;
 alter table prepaid_recovery_payments enable row level security;
 alter table prepaid_recovery_excluded enable row level security;
+alter table prepaid_recovery_good_standing enable row level security;
 alter table prepaid_recovery_remarks enable row level security;
 -- No public policies: all access goes through API routes using the
 -- service_role key on the server, same as the rest of this app. Note:

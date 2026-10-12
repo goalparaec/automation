@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getPaymentsForDate } from '../../../../../../lib/prepaidRecoveryDb';
+import { getPaymentsForDate, getEsdMap } from '../../../../../../lib/prepaidRecoveryDb';
 import { buildPaymentsWorkbook } from '../../../../../../lib/prepaidRecoveryExcelExport';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request, { params }) {
   const { date } = params;
-  const rows = await getPaymentsForDate(date);
-  const wb = await buildPaymentsWorkbook(date, rows);
+  const [rows, esdMap] = await Promise.all([getPaymentsForDate(date), getEsdMap()]);
+  const wb = await buildPaymentsWorkbook(date, rows, esdMap);
   const buffer = await wb.xlsx.writeBuffer();
   return new NextResponse(buffer, {
     headers: {

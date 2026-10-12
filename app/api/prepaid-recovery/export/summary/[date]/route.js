@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { getSummaryForDate } from '../../../../../../lib/prepaidRecoveryDb';
+import { getSummaryForDate, getEsdMap } from '../../../../../../lib/prepaidRecoveryDb';
 import { buildSummaryWorkbook } from '../../../../../../lib/prepaidRecoveryExcelExport';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request, { params }) {
   const { date } = params;
-  const rows = await getSummaryForDate(date);
+  const [rows, esdMap] = await Promise.all([getSummaryForDate(date), getEsdMap()]);
   if (!rows || rows.length === 0) {
     return NextResponse.json({ error: 'No summary for this date.' }, { status: 404 });
   }
@@ -31,7 +31,7 @@ export async function GET(request, { params }) {
       paidTodayAmount: 0, rows: 0 }
   );
 
-  const wb = await buildSummaryWorkbook(date, rows, total);
+  const wb = await buildSummaryWorkbook(date, rows, total, esdMap);
   const buffer = await wb.xlsx.writeBuffer();
   return new NextResponse(buffer, {
     headers: {

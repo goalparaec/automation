@@ -22,7 +22,7 @@ function PRINT_CSS() {
   );
 }
 
-function SummaryTab({ reportDate, summaryRows }) {
+function SummaryTab({ reportDate, summaryRows, esdMap }) {
   const total = summaryRows.reduce(
     (acc, r) => {
       acc.band_3_6 += r.band_3_6;
@@ -52,7 +52,7 @@ function SummaryTab({ reportDate, summaryRows }) {
       {summaryRows.some((r) => r.stale_warning) && (
         <div className="status error" style={{ marginBottom: 10 }}>
           {summaryRows.filter((r) => r.stale_warning).map((r) => (
-            <div key={r.esd_code}>{r.esd_label}: {r.stale_warning}</div>
+            <div key={r.esd_code}>{esdMap[r.esd_code] || r.esd_label || r.esd_code}: {r.stale_warning}</div>
           ))}
         </div>
       )}
@@ -67,7 +67,7 @@ function SummaryTab({ reportDate, summaryRows }) {
         <tbody>
           {summaryRows.map((r) => (
             <tr key={r.esd_code}>
-              <td>{r.esd_label}</td>
+              <td>{esdMap[r.esd_code] || r.esd_label || r.esd_code}</td>
               <td>{r.band_3_6}</td>
               <td>{r.band_6_12}</td>
               <td>{r.band_above_1y}</td>
@@ -99,7 +99,7 @@ function SummaryTab({ reportDate, summaryRows }) {
   );
 }
 
-function PaymentsTab({ reportDate, paymentsRows }) {
+function PaymentsTab({ reportDate, paymentsRows, esdMap }) {
   return (
     <div>
       <div className="no-print" style={{ marginBottom: 10 }}>
@@ -112,7 +112,7 @@ function PaymentsTab({ reportDate, paymentsRows }) {
         <tbody>
           {paymentsRows.map((r, i) => (
             <tr key={`${r.consumer_no}-${i}`}>
-              <td>{r.esd_code}</td>
+              <td>{esdMap[r.esd_code] || r.esd_code}</td>
               <td>{r.consumer_no}</td>
               <td>{r.consumer_name}</td>
               <td>{r.category_name}</td>
@@ -406,8 +406,8 @@ export default function PrepaidRecoveryView({
       </div>
 
       <div className="card">
-        {tab === 'summary' && <SummaryTab reportDate={reportDate} summaryRows={summaryRows} />}
-        {tab === 'payments' && <PaymentsTab reportDate={reportDate} paymentsRows={paymentsRows} />}
+        {tab === 'summary' && <SummaryTab reportDate={reportDate} summaryRows={summaryRows} esdMap={esdMap} />}
+        {tab === 'payments' && <PaymentsTab reportDate={reportDate} paymentsRows={paymentsRows} esdMap={esdMap} />}
         {tab === 'calllist' && <CallListTab reportDate={reportDate} callListRows={callListRows} esdMap={esdMap} />}
         {tab === 'stillunpaid' && (
           <StillUnpaidTab reportDate={reportDate} previousDate={previousDate} stillUnpaidTracker={stillUnpaidTracker} esdMap={esdMap} />

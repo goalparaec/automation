@@ -16,6 +16,7 @@ export default function RootLayout({ children }) {
               <a href="/upload">Upload</a>
               <a href="/manual-inputs">Monthly Inputs</a>
               <a href="/consumer-indexing">Consumer Indexing</a>
+              <a href="/prepaid-recovery">Prepaid Recovery</a>
             </nav>
           </header>
           <main className="app-main">{children}</main>

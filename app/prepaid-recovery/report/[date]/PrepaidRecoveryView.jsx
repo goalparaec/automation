@@ -27,6 +27,11 @@ function bandLabel(band) {
 const REASON_LABELS = {
   'No phone (left out of call list)': 'No Phone numbers',
 };
+const ALL_EXCLUDE_REASONS = [
+  'Government consumer', 'PDC connection', 'Dept/Govt Tower consumer',
+  'Category not in scope', 'GHDT DTR', 'Excluded name keyword',
+  'No phone (left out of call list)',
+];
 function reasonLabel(reason) {
   return REASON_LABELS[reason] || reason;
 }
@@ -104,9 +109,6 @@ function SummaryTab({ reportDate, summaryRows, esdMap }) {
             <th style={th}>Call list total</th>
             <th style={th}>Negative balance (Lakhs)</th>
             <th style={th}>No Phone numbers</th>
-            <th style={th}>Good Standing</th>
-            <th style={th}>Recharged Yesterday</th>
-            <th style={th}>Recharged Today</th>
           </tr>
         </thead>
         <tbody>
@@ -120,9 +122,6 @@ function SummaryTab({ reportDate, summaryRows, esdMap }) {
               <td style={td}>{r.call_list_total}</td>
               <td style={td}>{lakhs(r.neg_total)}</td>
               <td style={td}>{r.no_phone_excluded}</td>
-              <td style={td}>{r.good_standing_count || 0}</td>
-              <td style={td}>{r.paid_yesterday_count} ({inr(r.paid_yesterday_amount)})</td>
-              <td style={td}>{r.paid_today_count} ({inr(r.paid_today_amount)})</td>
             </tr>
           ))}
           <tr className="total-row">
@@ -134,9 +133,6 @@ function SummaryTab({ reportDate, summaryRows, esdMap }) {
             <td style={td}>{total.call_list_total}</td>
             <td style={td}>{lakhs(total.neg_total)}</td>
             <td style={td}>{total.no_phone_excluded}</td>
-            <td style={td}>{total.good_standing_count}</td>
-            <td style={td}>{total.paid_yesterday_count} ({inr(total.paid_yesterday_amount)})</td>
-            <td style={td}>{total.paid_today_count} ({inr(total.paid_today_amount)})</td>
           </tr>
         </tbody>
       </table>
@@ -145,10 +141,83 @@ function SummaryTab({ reportDate, summaryRows, esdMap }) {
 }
 
 function PaymentsTab({ reportDate, paymentsRows, esdMap }) {
+  const [esdFilter, setEsdFilter] = useState('');
+  const [whenFilter, setWhenFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [visibleCount, setVisibleCount] = useState(300);
+
+  // Per-ESD roll-up built from the full list, so it always matches the rows below.
+  const summary = useMemo(() => {
+    const by = {};
+    for (const r of paymentsRows) {
+      const b = by[r.esd_code] || (by[r.esd_code] = { yc: 0, ya: 0, tc: 0, ta: 0 });
+      const amt = Number(r.paid_amount || 0);
+      if (r.paid_when === 'today') { b.tc += 1; b.ta += amt; } else { b.yc += 1; b.ya += amt; }
+    }
+    const codes = Object.keys(by).sort();
+    const grand = { yc: 0, ya: 0, tc: 0, ta: 0 };
+    for (const c of codes) for (const k of Object.keys(grand)) grand[k] += by[c][k];
+    return { by, codes, grand };
+  }, [paymentsRows]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return paymentsRows.filter((r) => {
+      if (esdFilter && r.esd_code !== esdFilter) return false;
+      if (whenFilter && r.paid_when !== whenFilter) return false;
+      if (q && !`${r.consumer_no} ${r.consumer_name}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [paymentsRows, esdFilter, whenFilter, search]);
+
+  const row = (label, b, key, bold) => (
+    <tr key={key} style={bold ? { fontWeight: 700, background: '#fff2cc' } : undefined}>
+      <td style={td}>{label}</td>
+      <td style={td}>{b.yc}</td><td style={td}>{inr(b.ya)}</td>
+      <td style={td}>{b.tc}</td><td style={td}>{inr(b.ta)}</td>
+      <td style={td}>{b.yc + b.tc}</td><td style={td}>{inr(b.ya + b.ta)}</td>
+    </tr>
+  );
+
   return (
     <div>
       <div className="no-print" style={{ marginBottom: 10 }}>
         <a className="btn" href={`/api/prepaid-recovery/export/payments/${reportDate}`}>Download Excel</a>
+      </div>
+      <p style={{ color: '#6b7280', fontSize: 13 }}>
+        Consumers who recharged since the previous report: &quot;Recharged Yesterday&quot; and &quot;Recharged Today&quot; are
+        the last two payment days in this report.
+      </p>
+      <table className="print-table" style={{ ...tableStyle, marginBottom: 16 }}>
+        <thead>
+          <tr>
+            <th style={th}>ESD</th>
+            <th style={th}>Recharged Yesterday (consumers)</th><th style={th}>Recharged Yesterday (Rs)</th>
+            <th style={th}>Recharged Today (consumers)</th><th style={th}>Recharged Today (Rs)</th>
+            <th style={th}>Total (consumers)</th><th style={th}>Total (Rs)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {summary.codes.map((c) => row(esdMap[c] || c, summary.by[c], c, false))}
+          {row('Goalpara Circle Total', summary.grand, 'total', true)}
+        </tbody>
+      </table>
+
+      <div className="no-print field-row" style={{ marginBottom: 10 }}>
+        <select value={esdFilter} onChange={(e) => setEsdFilter(e.target.value)}>
+          <option value="">All ESDs</option>
+          {Object.entries(esdMap).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+        </select>
+        <select value={whenFilter} onChange={(e) => setWhenFilter(e.target.value)}>
+          <option value="">Yesterday + Today</option>
+          <option value="yesterday">Recharged Yesterday</option>
+          <option value="today">Recharged Today</option>
+        </select>
+        <input type="text" placeholder="Search name / consumer no" value={search}
+          onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 220 }} />
+      </div>
+      <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>
+        {filtered.length.toLocaleString('en-IN')} payment(s) match.
       </div>
       <table className="print-table" style={tableStyle}>
         <thead>
@@ -159,7 +228,7 @@ function PaymentsTab({ reportDate, paymentsRows, esdMap }) {
           </tr>
         </thead>
         <tbody>
-          {paymentsRows.map((r, i) => (
+          {filtered.slice(0, visibleCount).map((r, i) => (
             <tr key={`${r.consumer_no}-${i}`}>
               <td style={td}>{esdMap[r.esd_code] || r.esd_code}</td>
               <td style={td}>{r.consumer_no}</td>
@@ -172,6 +241,11 @@ function PaymentsTab({ reportDate, paymentsRows, esdMap }) {
           ))}
         </tbody>
       </table>
+      {visibleCount < filtered.length && (
+        <button className="btn secondary no-print" style={{ marginTop: 10 }} onClick={() => setVisibleCount((v) => v + 300)}>
+          Show more ({filtered.length - visibleCount} remaining)
+        </button>
+      )}
     </div>
   );
 }
@@ -246,7 +320,7 @@ function CallListTab({ reportDate, callListRows, esdMap }) {
       <table className="print-table" style={tableStyle}>
         <thead>
           <tr>
-            <th style={th}>ESD</th><th style={th}>Consumer No</th><th style={th}>Name</th>
+            <th style={th}>Sr. No.</th><th style={th}>ESD</th><th style={th}>Consumer No</th><th style={th}>Name</th>
             <th style={th}>Address</th><th style={th}>Category</th><th style={th}>Status</th>
             <th style={th}>Phone</th><th style={th}>Last Payment</th><th style={th}>Neg. Balance</th>
             <th style={th}>Not Recharged For</th><th style={th}>Remarks</th>
@@ -257,6 +331,7 @@ function CallListTab({ reportDate, callListRows, esdMap }) {
             const key = `${r.consumer_no}|${r.esd_code}`;
             return (
               <tr key={key}>
+                <td style={td}>{r.serial_no ?? '-'}</td>
                 <td style={td}>{esdMap[r.esd_code] || r.esd_code}</td>
                 <td style={td}>{r.consumer_no}</td>
                 <td style={td}>{r.consumer_name}</td>
@@ -295,7 +370,12 @@ function ExcludedTab({ reportDate, excludedRows, esdMap }) {
   const [reasonFilter, setReasonFilter] = useState('');
   const [visibleCount, setVisibleCount] = useState(300);
 
-  const reasons = useMemo(() => [...new Set(excludedRows.map((r) => r.reason_category))].sort(), [excludedRows]);
+  // Always offer every category — even one with zero consumers today (e.g. GHDT) —
+  // so it is clear the rule ran and found nobody, rather than looking missing.
+  const reasons = useMemo(
+    () => [...new Set([...ALL_EXCLUDE_REASONS, ...excludedRows.map((r) => r.reason_category)])],
+    [excludedRows],
+  );
 
   const byReasonCount = useMemo(() => {
     const m = {};
@@ -319,7 +399,7 @@ function ExcludedTab({ reportDate, excludedRows, esdMap }) {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
         {reasons.map((r) => (
           <span key={r} style={{ background: '#f0f4f8', borderRadius: 999, padding: '6px 12px', fontSize: 13 }}>
-            {reasonLabel(r)}: {byReasonCount[r]}
+            {reasonLabel(r)}: {byReasonCount[r] || 0}
           </span>
         ))}
         <span style={{ background: '#fff2cc', borderRadius: 999, padding: '6px 12px', fontSize: 13, fontWeight: 700 }}>
@@ -546,6 +626,199 @@ function GoodStandingTab({ reportDate, esdMap }) {
   );
 }
 
+function AllotmentsTab({ reportDate, esdMap, callListRows }) {
+  const [esdCode, setEsdCode] = useState('');
+  const [fromSerial, setFromSerial] = useState('');
+  const [toSerial, setToSerial] = useState('');
+  const [label, setLabel] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [list, setList] = useState(null);
+  const [error, setError] = useState('');
+  const [openId, setOpenId] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('');
+
+  const callCounts = useMemo(() => {
+    const m = {};
+    for (const r of callListRows) m[r.esd_code] = (m[r.esd_code] || 0) + 1;
+    return m;
+  }, [callListRows]);
+
+  async function load() {
+    setError('');
+    try {
+      const res = await fetch(`/api/prepaid-recovery/allotments?reportDate=${reportDate}`);
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Failed to load allotments.');
+      setList(d.allotments);
+    } catch (e) { setError(e.message); }
+  }
+  useEffect(() => { load(); }, [reportDate]);
+
+  async function create() {
+    setMsg('');
+    setBusy(true);
+    try {
+      const res = await fetch('/api/prepaid-recovery/allotments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportDate, esdCode, fromSerial, toSerial, label }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Failed.');
+      setMsg(`Allotted ${d.allotment.consumer_count} consumers to "${d.allotment.label}". Open this tab on a later report to see how many paid.`);
+      setFromSerial(''); setToSerial(''); setLabel('');
+      await load();
+    } catch (e) { setMsg(`Error: ${e.message}`); } finally { setBusy(false); }
+  }
+
+  async function remove(id) {
+    if (!window.confirm('Delete this allotment and its tracking?')) return;
+    await fetch(`/api/prepaid-recovery/allotments?id=${id}`, { method: 'DELETE' });
+    if (openId === id) { setOpenId(null); setDetail(null); }
+    await load();
+  }
+
+  async function toggle(id) {
+    if (openId === id) { setOpenId(null); setDetail(null); return; }
+    setOpenId(id); setDetail(null); setStatusFilter('');
+    const res = await fetch(`/api/prepaid-recovery/allotments?reportDate=${reportDate}&id=${id}`);
+    const d = await res.json();
+    if (res.ok && d.allotments[0]) setDetail(d.allotments[0].items || []);
+  }
+
+  const totals = useMemo(() => {
+    const t = { allotted: 0, paid: 0, cleared: 0, recovered: 0, stillUnpaid: 0, notInReport: 0, paidAmount: 0 };
+    for (const e of list || []) {
+      if (!e.stats) continue;
+      for (const k of Object.keys(t)) t[k] += e.stats[k];
+    }
+    t.pct = t.allotted ? (t.recovered / t.allotted) * 100 : 0;
+    return t;
+  }, [list]);
+
+  return (
+    <div>
+      <p style={{ color: '#6b7280', fontSize: 13 }}>
+        Hand out calling work by ESD and serial number range (Sr. No. is shown in the Call List tab; 1 = largest
+        negative balance). The consumers are saved when you allot them. Open this tab on a later day&apos;s report
+        to see, for each allotment, how many have since paid. &quot;Cleared&quot; means the consumer&apos;s balance is
+        no longer a defaulter (recharged earlier or back above the threshold).
+      </p>
+
+      <div className="no-print field-row" style={{ marginBottom: 10 }}>
+        <select value={esdCode} onChange={(e) => setEsdCode(e.target.value)}>
+          <option value="">Choose ESD</option>
+          {Object.entries(esdMap).map(([code, l]) => (
+            <option key={code} value={code}>{l} ({callCounts[code] || 0} on call list)</option>
+          ))}
+        </select>
+        <input type="number" min="1" placeholder="From Sr. No." value={fromSerial}
+          onChange={(e) => setFromSerial(e.target.value)} style={{ width: 120 }} />
+        <input type="number" min="1" placeholder="To Sr. No." value={toSerial}
+          onChange={(e) => setToSerial(e.target.value)} style={{ width: 120 }} />
+        <input type="text" placeholder="Allotted to (caller name)" value={label}
+          onChange={(e) => setLabel(e.target.value)} style={{ minWidth: 200 }} />
+        <button className="btn" onClick={create} disabled={busy}>{busy ? 'Saving…' : 'Create allotment'}</button>
+        <a className="btn" href={`/api/prepaid-recovery/export/allotments/${reportDate}`}>Download Excel</a>
+      </div>
+      {msg && <div className={`status ${msg.startsWith('Error') ? 'error' : ''}`} style={{ marginBottom: 10 }}>{msg}</div>}
+      {error && <div className="status error" style={{ marginBottom: 10 }}>{error}</div>}
+
+      {list && list.length === 0 && <p>No allotments yet.</p>}
+      {list && list.length > 0 && (
+        <table className="print-table" style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={th}>Allotted to</th><th style={th}>ESD</th><th style={th}>Sr. No. range</th>
+              <th style={th}>Allotted on</th><th style={th}>Consumers allotted</th>
+              <th style={th}>Paid since allotment</th><th style={th}>Cleared</th>
+              <th style={th}>Total recovered</th><th style={th}>Still unpaid</th>
+              <th style={th}>Not in report</th><th style={th}>Recovered %</th>
+              <th style={th}>Amount paid (Rs)</th><th className="no-print" style={th}> </th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((e) => {
+              const a = e.allotment;
+              const st = e.stats;
+              return (
+                <tr key={a.id}>
+                  <td style={td}>{a.label}</td>
+                  <td style={td}>{esdMap[a.esd_code] || a.esd_code}</td>
+                  <td style={td}>{a.from_serial}-{a.to_serial}</td>
+                  <td style={td}>{a.allotted_on}</td>
+                  <td style={td}>{a.consumer_count}</td>
+                  {e.pending ? (
+                    <td style={td} colSpan={7}>Allotted on this report — check from the next report</td>
+                  ) : (
+                    <>
+                      <td style={td}>{st.paid}</td><td style={td}>{st.cleared}</td>
+                      <td style={td}><b>{st.recovered}</b></td><td style={td}>{st.stillUnpaid}</td>
+                      <td style={td}>{st.notInReport}</td><td style={td}>{st.recoveredPct.toFixed(1)}%</td>
+                      <td style={td}>{inr(st.paidAmount)}</td>
+                    </>
+                  )}
+                  <td className="no-print" style={td}>
+                    {!e.pending && <button className="btn secondary" onClick={() => toggle(a.id)}>{openId === a.id ? 'Hide' : 'View'}</button>}
+                    {' '}<button className="btn secondary" onClick={() => remove(a.id)}>Delete</button>
+                  </td>
+                </tr>
+              );
+            })}
+            <tr style={{ fontWeight: 700, background: '#fff2cc' }}>
+              <td style={td} colSpan={4}>TOTAL (all allotments checked against {reportDate})</td>
+              <td style={td}>{totals.allotted}</td><td style={td}>{totals.paid}</td><td style={td}>{totals.cleared}</td>
+              <td style={td}>{totals.recovered}</td><td style={td}>{totals.stillUnpaid}</td>
+              <td style={td}>{totals.notInReport}</td><td style={td}>{totals.pct.toFixed(1)}%</td>
+              <td style={td}>{inr(totals.paidAmount)}</td><td className="no-print" style={td}> </td>
+            </tr>
+          </tbody>
+        </table>
+      )}
+
+      {openId && (
+        <div style={{ marginTop: 16 }}>
+          {!detail && <p>Loading…</p>}
+          {detail && (
+            <>
+              <div className="no-print field-row" style={{ marginBottom: 8 }}>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                  <option value="">All statuses</option>
+                  <option value="Paid">Paid</option>
+                  <option value="Cleared">Cleared</option>
+                  <option value="Still unpaid">Still unpaid</option>
+                  <option value="Not in report">Not in report</option>
+                </select>
+              </div>
+              <table className="print-table" style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={th}>Sr. No.</th><th style={th}>Consumer No</th><th style={th}>Name</th>
+                    <th style={th}>Phone</th><th style={th}>Not Recharged For (at allotment)</th>
+                    <th style={th}>Balance at allotment</th><th style={th}>Status now</th><th style={th}>Amount paid</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.filter((it) => !statusFilter || it.status === statusFilter).map((it) => (
+                    <tr key={it.id}>
+                      <td style={td}>{it.serial_no}</td><td style={td}>{it.consumer_no}</td>
+                      <td style={td}>{it.consumer_name}</td><td style={td}>{it.phone_no}</td>
+                      <td style={td}>{bandLabel(it.band)}</td><td style={td}>{inr(it.balance)}</td>
+                      <td style={td}>{it.status}</td><td style={td}>{it.paid_amount != null ? inr(it.paid_amount) : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PrepaidRecoveryView({
   reportDate, summaryRows, paymentsRows, callListRows, excludedRows, esdMap, previousDate, stillUnpaidTracker,
 }) {
@@ -565,6 +838,7 @@ export default function PrepaidRecoveryView({
         <button className={`btn ${tab === 'calllist' ? '' : 'secondary'}`} onClick={() => setTab('calllist')}>Call List</button>
         <button className={`btn ${tab === 'stillunpaid' ? '' : 'secondary'}`} onClick={() => setTab('stillunpaid')}>Still Unpaid Tracker</button>
         <button className={`btn ${tab === 'excluded' ? '' : 'secondary'}`} onClick={() => setTab('excluded')}>Excluded</button>
+        <button className={`btn ${tab === 'allotments' ? '' : 'secondary'}`} onClick={() => setTab('allotments')}>Allotments</button>
         <button className={`btn ${tab === 'goodstanding' ? '' : 'secondary'}`} onClick={() => setTab('goodstanding')}>Good Standing</button>
       </div>
 
@@ -576,6 +850,7 @@ export default function PrepaidRecoveryView({
           <StillUnpaidTab reportDate={reportDate} previousDate={previousDate} stillUnpaidTracker={stillUnpaidTracker} esdMap={esdMap} />
         )}
         {tab === 'excluded' && <ExcludedTab reportDate={reportDate} excludedRows={excludedRows} esdMap={esdMap} />}
+        {tab === 'allotments' && <AllotmentsTab reportDate={reportDate} esdMap={esdMap} callListRows={callListRows} />}
         {tab === 'goodstanding' && <GoodStandingTab reportDate={reportDate} esdMap={esdMap} />}
       </div>
     </div>

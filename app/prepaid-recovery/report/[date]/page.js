@@ -2,7 +2,7 @@ import PrepaidRecoveryView from './PrepaidRecoveryView';
 import { buildStillUnpaidTracker } from '../../../../lib/prepaidRecoveryCore';
 import {
   getSummaryForDate, getPaymentsForDate, getCallListForDate, getExcludedForDate, getEsdMap,
-  getPreviousReportDate, getCallListKeysForDate,
+  getPreviousReportDate, getCallListKeysForDate, getAnalysisForDate,
 } from '../../../../lib/prepaidRecoveryDb';
 
 export const dynamic = 'force-dynamic';
@@ -11,7 +11,7 @@ export const revalidate = 0;
 function ErrorCard({ date, message }) {
   return (
     <div className="card">
-      <h1>Prepaid Recovery — {date}</h1>
+      <h1>Prepaid Reports — {date}</h1>
       <p>This report could not be loaded.</p>
       <pre style={{ whiteSpace: 'pre-wrap', background: '#fef2f2', padding: 10 }}>{message}</pre>
       <a href="/prepaid-recovery">← Back to upload page</a>
@@ -38,7 +38,7 @@ export default async function PrepaidRecoveryReportPage({ params }) {
   if (!summaryRows || summaryRows.length === 0) {
     return (
       <div className="card">
-        <h1>Prepaid Recovery — {date}</h1>
+        <h1>Prepaid Reports — {date}</h1>
         <p>No report has been uploaded for this date yet.</p>
         <a href="/prepaid-recovery">← Back to upload page</a>
       </div>
@@ -47,9 +47,14 @@ export default async function PrepaidRecoveryReportPage({ params }) {
 
   let previousDate = null;
   let stillUnpaidTracker = [];
+  let analysis = {}; let prevAnalysis = null; let prevSummaryRows = [];
+  try { analysis = await getAnalysisForDate(date); } catch (err) { console.error('analysis load failed', err); }
   try {
     previousDate = await getPreviousReportDate(date);
     if (previousDate) {
+      try {
+        [prevAnalysis, prevSummaryRows] = await Promise.all([getAnalysisForDate(previousDate), getSummaryForDate(previousDate)]);
+      } catch (err) { console.error('previous analysis load failed', err); }
       // Reuse the rows already loaded for today instead of fetching them again.
       const currentCallKeys = callListRows.map((r) => ({
         consumerNo: r.consumer_no, esdCode: r.esd_code, consumerName: r.consumer_name, balance: r.balance, band: r.band,
@@ -73,6 +78,9 @@ export default async function PrepaidRecoveryReportPage({ params }) {
       esdMap={esdMap}
       previousDate={previousDate}
       stillUnpaidTracker={stillUnpaidTracker}
+      analysis={analysis}
+      prevAnalysis={prevAnalysis}
+      prevSummaryRows={prevSummaryRows}
     />
   );
 }

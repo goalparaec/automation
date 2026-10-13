@@ -1,267 +1,294 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ANALYSIS_COLUMNS, ANALYSIS_TABLES, analysisTableRows, analysisCrossRows, mergedAnalysis, trendRows,
+  summarizePaymentsRows, summarizeExcludedRows, bandLabel, reasonLabel, fmtDate,
+} from '../../../../lib/prepaidRecoveryCore';
 
-function inr(n) {
-  if (n == null || isNaN(n)) return '-';
-  return Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-}
-
-function lakhs(n) {
-  if (n == null || isNaN(n)) return '-';
-  return (Number(n) / 100000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-// Internal band values stay unchanged in the database (so old uploads keep
-// filtering correctly) — only how they're shown on screen changes.
-const BAND_LABELS = {
-  '3-6 months': 'Not recharged 3-6 months',
-  '6-12 months': 'Not recharged 6-12 months',
-  'Above 1 year': 'Not recharged above 1 year',
-  'No payment record': 'Never recharged',
+// ---------------------------------------------------------------------------
+// Formatting
+// ---------------------------------------------------------------------------
+const inr = (n) => (n == null || isNaN(n) ? '-' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }));
+const money = (n) => (n == null || isNaN(n) ? '-' : Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const int = (n) => (n == null || isNaN(n) ? '-' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 }));
+const lakhs = (n) => (n == null || isNaN(n) ? '-' : (Number(n) / 100000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const fmtBy = (fmt, v) => {
+  if (v == null || (typeof v === 'number' && isNaN(v))) return '-';
+  if (fmt === 'int') return int(v);
+  if (fmt === 'pct') return `${Number(v).toFixed(1)}%`;
+  return money(v); // lakh + money
 };
-function bandLabel(band) {
-  return BAND_LABELS[band] || band;
-}
+const signed = (fmt, v) => (v == null ? '-' : `${v > 0 ? '+' : ''}${fmtBy(fmt, v)}`);
 
-const REASON_LABELS = {
-  'No phone (left out of call list)': 'No Phone numbers',
-};
-const ALL_EXCLUDE_REASONS = [
-  'Government consumer', 'PDC connection', 'Dept/Govt Tower consumer',
-  'Category not in scope', 'GHDT DTR', 'Excluded name keyword',
-  'No phone (left out of call list)',
-];
-function reasonLabel(reason) {
-  return REASON_LABELS[reason] || reason;
-}
-
-// Shared table styling: headers wrap onto multiple lines without ever
-// splitting a word, and every column (header + data) lines up centered.
-const th = {
-  border: '1px solid #333', background: '#dce6f1', padding: '7px 6px', fontWeight: 700,
-  textAlign: 'center', whiteSpace: 'normal', wordBreak: 'normal', overflowWrap: 'normal',
-  lineHeight: 1.25, verticalAlign: 'middle',
-};
-const td = {
-  border: '1px solid #333', padding: '6px 6px', textAlign: 'center',
-  whiteSpace: 'normal', wordBreak: 'normal', overflowWrap: 'normal', lineHeight: 1.3,
-};
-const tableStyle = { width: '100%', borderCollapse: 'collapse', fontSize: 12.5, tableLayout: 'fixed' };
-
-function PRINT_CSS() {
+// ---------------------------------------------------------------------------
+// One table component and one stylesheet for every tab, so all reports look
+// and wrap identically: headers/cells wrap at spaces only, each column is as
+// wide as its longest word, numbers never wrap, and a wide table scrolls
+// inside its own box instead of spilling out of the page.
+// ---------------------------------------------------------------------------
+function Styles() {
   return (
     <style jsx global>{`
+      .pr-scope .pr-wrap { overflow-x: auto; border: 1px solid #cfd8e3; border-radius: 8px; margin-bottom: 18px; background: #fff; }
+      .pr-scope table.pr-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
+      .pr-scope .pr-table th {
+        background: #1f3b5c; color: #fff; padding: 9px 10px; text-align: center; font-weight: 600;
+        line-height: 1.25; border: 1px solid #1f3b5c; vertical-align: middle;
+        white-space: normal; word-break: normal; overflow-wrap: normal;
+      }
+      .pr-scope .pr-table td {
+        padding: 7px 10px; border: 1px solid #d9e1ea; text-align: center; vertical-align: middle; line-height: 1.3;
+        white-space: normal; word-break: normal; overflow-wrap: normal;
+      }
+      .pr-scope .pr-table td.num { white-space: nowrap; }
+      .pr-scope .pr-table td.left { text-align: left; }
+      .pr-scope .pr-table.tall td { height: 38px; }
+      .pr-scope .pr-table tbody tr:nth-child(even) td { background: #f3f6fa; }
+      .pr-scope .pr-table tr.total td { background: #fff2cc; font-weight: 700; }
+      .pr-scope .pr-table tr.section td { background: #dce6f1; font-weight: 700; text-align: left; }
+      .pr-scope h3.pr-h { margin: 18px 0 8px; font-size: 15px; color: #1f3b5c; }
+      .pr-scope .pr-note { color: #5b6776; font-size: 13px; margin: 0 0 12px; line-height: 1.45; }
+      .pr-scope .pr-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+      .pr-scope .pr-chip { background: #eef3f9; border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+      .pr-scope .pr-chip.warn { background: #fff2cc; font-weight: 700; }
+      .pr-scope .pr-chip.good { background: #d6f0db; }
+      .pr-scope .pr-chip.bad { background: #f8cbcb; }
+      .pr-scope .pr-remark { width: 100%; min-width: 180px; font-size: 12px; }
       @media print {
-        .app-header, .no-print, .tabs, .btn.secondary { display: none !important; }
-        .print-table { font-size: 10px; }
-        table { page-break-inside: auto; }
-        tr { page-break-inside: avoid; }
+        .app-header, .no-print, .tabs { display: none !important; }
+        .pr-scope .pr-wrap { overflow: visible; border: none; }
+        .pr-scope .pr-table { font-size: 10px; }
+        .pr-scope .pr-table th, .pr-scope .pr-table td { padding: 4px 5px; }
+        .pr-scope .pr-remark { border: none; }
         thead { display: table-header-group; }
+        tr { page-break-inside: avoid; }
         @page { size: A4 landscape; margin: 10mm; }
       }
     `}</style>
   );
 }
 
-function SummaryTab({ reportDate, summaryRows, esdMap }) {
-  const total = summaryRows.reduce(
-    (acc, r) => {
-      acc.band_3_6 += r.band_3_6;
-      acc.band_6_12 += r.band_6_12;
-      acc.band_above_1y += r.band_above_1y;
-      acc.band_no_payment += r.band_no_payment;
-      acc.call_list_total += r.call_list_total;
-      acc.neg_total += Number(r.neg_total);
-      acc.no_phone_excluded += r.no_phone_excluded;
-      acc.good_standing_count += r.good_standing_count || 0;
-      acc.paid_yesterday_count += r.paid_yesterday_count;
-      acc.paid_yesterday_amount += Number(r.paid_yesterday_amount);
-      acc.paid_today_count += r.paid_today_count;
-      acc.paid_today_amount += Number(r.paid_today_amount);
-      return acc;
-    },
-    { band_3_6: 0, band_6_12: 0, band_above_1y: 0, band_no_payment: 0, call_list_total: 0,
-      neg_total: 0, no_phone_excluded: 0, good_standing_count: 0, paid_yesterday_count: 0, paid_yesterday_amount: 0,
-      paid_today_count: 0, paid_today_amount: 0 }
-  );
-
+/** columns: [{ header, render: (row, i) => node, left?, num? }]; rows may carry _total / _section. */
+function DataTable({ columns, rows, tall }) {
   return (
-    <div>
-      <div className="no-print" style={{ marginBottom: 10 }}>
-        <a className="btn" href={`/api/prepaid-recovery/export/summary/${reportDate}`}>Download Excel</a>
-      </div>
-      {summaryRows.some((r) => r.stale_warning) && (
-        <div className="status error" style={{ marginBottom: 10 }}>
-          {summaryRows.filter((r) => r.stale_warning).map((r) => (
-            <div key={r.esd_code}>{esdMap[r.esd_code] || r.esd_label || r.esd_code}: {r.stale_warning}</div>
-          ))}
-        </div>
-      )}
-      <table className="print-table" style={tableStyle}>
+    <div className="pr-wrap">
+      <table className={`pr-table${tall ? ' tall' : ''}`}>
         <thead>
-          <tr>
-            <th style={th}>ESD</th>
-            <th style={th}>{bandLabel('3-6 months')}</th>
-            <th style={th}>{bandLabel('6-12 months')}</th>
-            <th style={th}>{bandLabel('Above 1 year')}</th>
-            <th style={th}>{bandLabel('No payment record')}</th>
-            <th style={th}>Call list total</th>
-            <th style={th}>Negative balance (Lakhs)</th>
-            <th style={th}>No Phone numbers</th>
-          </tr>
+          <tr>{columns.map((c, i) => <th key={i}>{c.header}</th>)}</tr>
         </thead>
         <tbody>
-          {summaryRows.map((r) => (
-            <tr key={r.esd_code}>
-              <td style={td}>{esdMap[r.esd_code] || r.esd_label || r.esd_code}</td>
-              <td style={td}>{r.band_3_6}</td>
-              <td style={td}>{r.band_6_12}</td>
-              <td style={td}>{r.band_above_1y}</td>
-              <td style={td}>{r.band_no_payment}</td>
-              <td style={td}>{r.call_list_total}</td>
-              <td style={td}>{lakhs(r.neg_total)}</td>
-              <td style={td}>{r.no_phone_excluded}</td>
+          {rows.map((r, ri) => (
+            <tr key={ri} className={r._total ? 'total' : r._section ? 'section' : undefined}>
+              {r._section ? (
+                <td colSpan={columns.length}>{r._label}</td>
+              ) : columns.map((c, ci) => (
+                <td key={ci} className={`${c.left ? 'left' : ''}${c.num ? ' num' : ''}`}>{c.render(r, ri)}</td>
+              ))}
             </tr>
           ))}
-          <tr className="total-row">
-            <td style={td}>Goalpara Circle Total</td>
-            <td style={td}>{total.band_3_6}</td>
-            <td style={td}>{total.band_6_12}</td>
-            <td style={td}>{total.band_above_1y}</td>
-            <td style={td}>{total.band_no_payment}</td>
-            <td style={td}>{total.call_list_total}</td>
-            <td style={td}>{lakhs(total.neg_total)}</td>
-            <td style={td}>{total.no_phone_excluded}</td>
-          </tr>
         </tbody>
       </table>
     </div>
   );
 }
 
-function PaymentsTab({ reportDate, paymentsRows, esdMap }) {
-  const [esdFilter, setEsdFilter] = useState('');
-  const [whenFilter, setWhenFilter] = useState('');
-  const [search, setSearch] = useState('');
-  const [visibleCount, setVisibleCount] = useState(300);
+function ExcelButton({ href, children = 'Download Excel' }) {
+  return <a className="btn" href={href}>{children}</a>;
+}
 
-  // Per-ESD roll-up built from the full list, so it always matches the rows below.
-  const summary = useMemo(() => {
-    const by = {};
-    for (const r of paymentsRows) {
-      const b = by[r.esd_code] || (by[r.esd_code] = { yc: 0, ya: 0, tc: 0, ta: 0 });
-      const amt = Number(r.paid_amount || 0);
-      if (r.paid_when === 'today') { b.tc += 1; b.ta += amt; } else { b.yc += 1; b.ya += amt; }
-    }
-    const codes = Object.keys(by).sort();
-    const grand = { yc: 0, ya: 0, tc: 0, ta: 0 };
-    for (const c of codes) for (const k of Object.keys(grand)) grand[k] += by[c][k];
-    return { by, codes, grand };
-  }, [paymentsRows]);
+function EsdSelect({ esdMap, value, onChange, all = 'All ESDs' }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">{all}</option>
+      {Object.entries(esdMap).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+    </select>
+  );
+}
+
+const esdName = (esdMap, code) => esdMap[code] || code;
+
+function ShowMore({ visible, total, onMore }) {
+  if (visible >= total) return null;
+  return (
+    <button className="btn secondary no-print" style={{ marginTop: 4 }} onClick={onMore}>
+      Show more ({(total - visible).toLocaleString('en-IN')} remaining)
+    </button>
+  );
+}
+
+function paidWindow(reportDate, from) {
+  return from
+    ? `Paid since last report = payments dated ${fmtDate(from)} to ${fmtDate(reportDate)}.`
+    : `Paid since last report = payments up to ${fmtDate(reportDate)}.`;
+}
+
+// ---------------------------------------------------------------------------
+// Summary
+// ---------------------------------------------------------------------------
+function SummaryTab({ reportDate, summaryRows, esdMap }) {
+  const total = summaryRows.reduce((a, r) => {
+    a.b36 += r.band_3_6; a.b612 += r.band_6_12; a.b1y += r.band_above_1y; a.bnp += r.band_no_payment;
+    a.total += r.call_list_total; a.neg += Number(r.neg_total); a.nophone += r.no_phone_excluded;
+    a.pn += r.paid_since_count || 0; a.pa += Number(r.paid_since_amount || 0);
+    a.n36 += Number(r.neg_band_3_6); a.n612 += Number(r.neg_band_6_12); a.n1y += Number(r.neg_band_above_1y); a.nnp += Number(r.neg_band_no_payment);
+    return a;
+  }, { b36: 0, b612: 0, b1y: 0, bnp: 0, total: 0, neg: 0, nophone: 0, pn: 0, pa: 0, n36: 0, n612: 0, n1y: 0, nnp: 0 });
+  const paidFrom = (summaryRows[0] || {}).paid_from_date;
+
+  const rows = [
+    ...summaryRows.map((r) => ({
+      esd: esdName(esdMap, r.esd_code), b36: r.band_3_6, b612: r.band_6_12, b1y: r.band_above_1y, bnp: r.band_no_payment,
+      total: r.call_list_total, neg: Number(r.neg_total), nophone: r.no_phone_excluded,
+      pn: r.paid_since_count || 0, pa: Number(r.paid_since_amount || 0),
+    })),
+    { _total: true, esd: 'Goalpara Circle Total', b36: total.b36, b612: total.b612, b1y: total.b1y, bnp: total.bnp,
+      total: total.total, neg: total.neg, nophone: total.nophone, pn: total.pn, pa: total.pa },
+  ];
+  const bandRows = [
+    ...summaryRows.map((r) => ({
+      esd: esdName(esdMap, r.esd_code), a: Number(r.neg_band_3_6), b: Number(r.neg_band_6_12),
+      c: Number(r.neg_band_above_1y), d: Number(r.neg_band_no_payment), e: Number(r.neg_total),
+    })),
+    { _total: true, esd: 'Goalpara Circle Total', a: total.n36, b: total.n612, c: total.n1y, d: total.nnp, e: total.neg },
+  ];
+
+  return (
+    <div>
+      <div className="no-print" style={{ marginBottom: 10 }}>
+        <ExcelButton href={`/api/prepaid-recovery/export/summary/${reportDate}`} />
+      </div>
+      <p className="pr-note">
+        Call list as on {fmtDate(reportDate)}. {paidWindow(reportDate, paidFrom)}
+      </p>
+      {summaryRows.some((r) => r.stale_warning) && (
+        <div className="status error" style={{ marginBottom: 10 }}>
+          {summaryRows.filter((r) => r.stale_warning).map((r) => (
+            <div key={r.esd_code}>{esdName(esdMap, r.esd_code)}: {r.stale_warning}</div>
+          ))}
+        </div>
+      )}
+      <DataTable
+        columns={[
+          { header: 'ESD', render: (r) => r.esd, left: true },
+          { header: bandLabel('3-6 months'), render: (r) => int(r.b36), num: true },
+          { header: bandLabel('6-12 months'), render: (r) => int(r.b612), num: true },
+          { header: bandLabel('Above 1 year'), render: (r) => int(r.b1y), num: true },
+          { header: bandLabel('No payment record'), render: (r) => int(r.bnp), num: true },
+          { header: 'Call list total', render: (r) => int(r.total), num: true },
+          { header: 'Negative balance (Lakhs)', render: (r) => lakhs(r.neg), num: true },
+          { header: 'No Phone numbers', render: (r) => int(r.nophone), num: true },
+          { header: 'Paid since last report (consumers)', render: (r) => int(r.pn), num: true },
+          { header: 'Paid since last report (Rs)', render: (r) => money(r.pa), num: true },
+        ]}
+        rows={rows}
+      />
+      <h3 className="pr-h">Negative balance of the call list by band (Lakhs)</h3>
+      <DataTable
+        columns={[
+          { header: 'ESD', render: (r) => r.esd, left: true },
+          { header: bandLabel('3-6 months'), render: (r) => lakhs(r.a), num: true },
+          { header: bandLabel('6-12 months'), render: (r) => lakhs(r.b), num: true },
+          { header: bandLabel('Above 1 year'), render: (r) => lakhs(r.c), num: true },
+          { header: bandLabel('No payment record'), render: (r) => lakhs(r.d), num: true },
+          { header: 'Total (Lakhs)', render: (r) => lakhs(r.e), num: true },
+        ]}
+        rows={bandRows}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Payments (paid since last report)
+// ---------------------------------------------------------------------------
+function PaymentsTab({ reportDate, paymentsRows, summaryRows, esdMap }) {
+  const [esdFilter, setEsdFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [visible, setVisible] = useState(300);
+  const paidFrom = (summaryRows[0] || {}).paid_from_date;
+
+  const sums = useMemo(() => summarizePaymentsRows(paymentsRows), [paymentsRows]);
+  const esdRows = useMemo(() => {
+    const codes = [...new Set([...summaryRows.map((r) => r.esd_code), ...Object.keys(sums.byEsd)])].sort();
+    return [
+      ...codes.map((c) => ({ esd: esdName(esdMap, c), n: (sums.byEsd[c] || {}).n || 0, amt: (sums.byEsd[c] || {}).amt || 0 })),
+      { _total: true, esd: 'Goalpara Circle Total', n: sums.total.n, amt: sums.total.amt },
+    ];
+  }, [sums, summaryRows, esdMap]);
+  const catRows = useMemo(() => [
+    ...Object.entries(sums.byCategory).sort((a, b) => b[1].amt - a[1].amt).map(([cat, v]) => ({ cat, n: v.n, amt: v.amt })),
+    { _total: true, cat: 'Total', n: sums.total.n, amt: sums.total.amt },
+  ], [sums]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return paymentsRows.filter((r) => {
       if (esdFilter && r.esd_code !== esdFilter) return false;
-      if (whenFilter && r.paid_when !== whenFilter) return false;
       if (q && !`${r.consumer_no} ${r.consumer_name}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [paymentsRows, esdFilter, whenFilter, search]);
-
-  const row = (label, b, key, bold) => (
-    <tr key={key} style={bold ? { fontWeight: 700, background: '#fff2cc' } : undefined}>
-      <td style={td}>{label}</td>
-      <td style={td}>{b.yc}</td><td style={td}>{inr(b.ya)}</td>
-      <td style={td}>{b.tc}</td><td style={td}>{inr(b.ta)}</td>
-      <td style={td}>{b.yc + b.tc}</td><td style={td}>{inr(b.ya + b.ta)}</td>
-    </tr>
-  );
+  }, [paymentsRows, esdFilter, search]);
 
   return (
     <div>
       <div className="no-print" style={{ marginBottom: 10 }}>
-        <a className="btn" href={`/api/prepaid-recovery/export/payments/${reportDate}`}>Download Excel</a>
+        <ExcelButton href={`/api/prepaid-recovery/export/payments/${reportDate}`} />
       </div>
-      <p style={{ color: '#6b7280', fontSize: 13 }}>
-        Consumers who recharged since the previous report: &quot;Recharged Yesterday&quot; and &quot;Recharged Today&quot; are
-        the last two payment days in this report.
+      <p className="pr-note">
+        Consumers who recharged since the previous report. {paidWindow(reportDate, paidFrom)} Reports need not be
+        daily: the window always starts at the date of the last report uploaded.
       </p>
-      <table className="print-table" style={{ ...tableStyle, marginBottom: 16 }}>
-        <thead>
-          <tr>
-            <th style={th}>ESD</th>
-            <th style={th}>Recharged Yesterday (consumers)</th><th style={th}>Recharged Yesterday (Rs)</th>
-            <th style={th}>Recharged Today (consumers)</th><th style={th}>Recharged Today (Rs)</th>
-            <th style={th}>Total (consumers)</th><th style={th}>Total (Rs)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {summary.codes.map((c) => row(esdMap[c] || c, summary.by[c], c, false))}
-          {row('Goalpara Circle Total', summary.grand, 'total', true)}
-        </tbody>
-      </table>
-
+      <DataTable
+        columns={[
+          { header: 'ESD', render: (r) => r.esd, left: true },
+          { header: 'Paid since last report (consumers)', render: (r) => int(r.n), num: true },
+          { header: 'Paid since last report (Rs)', render: (r) => money(r.amt), num: true },
+        ]}
+        rows={esdRows}
+      />
+      <h3 className="pr-h">Category-wise</h3>
+      <DataTable
+        columns={[
+          { header: 'Category', render: (r) => r.cat, left: true },
+          { header: 'Paid since last report (consumers)', render: (r) => int(r.n), num: true },
+          { header: 'Paid since last report (Rs)', render: (r) => money(r.amt), num: true },
+        ]}
+        rows={catRows}
+      />
+      <h3 className="pr-h">Consumer list</h3>
       <div className="no-print field-row" style={{ marginBottom: 10 }}>
-        <select value={esdFilter} onChange={(e) => setEsdFilter(e.target.value)}>
-          <option value="">All ESDs</option>
-          {Object.entries(esdMap).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-        </select>
-        <select value={whenFilter} onChange={(e) => setWhenFilter(e.target.value)}>
-          <option value="">Yesterday + Today</option>
-          <option value="yesterday">Recharged Yesterday</option>
-          <option value="today">Recharged Today</option>
-        </select>
+        <EsdSelect esdMap={esdMap} value={esdFilter} onChange={setEsdFilter} />
         <input type="text" placeholder="Search name / consumer no" value={search}
           onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 220 }} />
       </div>
-      <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>
-        {filtered.length.toLocaleString('en-IN')} payment(s) match.
-      </div>
-      <table className="print-table" style={tableStyle}>
-        <thead>
-          <tr>
-            <th style={th}>ESD</th><th style={th}>Consumer No</th><th style={th}>Name</th>
-            <th style={th}>Category</th><th style={th}>Paid Rs</th><th style={th}>Balance now</th>
-            <th style={th}>When</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.slice(0, visibleCount).map((r, i) => (
-            <tr key={`${r.consumer_no}-${i}`}>
-              <td style={td}>{esdMap[r.esd_code] || r.esd_code}</td>
-              <td style={td}>{r.consumer_no}</td>
-              <td style={td}>{r.consumer_name}</td>
-              <td style={td}>{r.category_name}</td>
-              <td style={td}>{inr(r.paid_amount)}</td>
-              <td style={td}>{inr(r.balance_now)}</td>
-              <td style={td}>{r.paid_when === 'today' ? 'Recharged Today' : 'Recharged Yesterday'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {visibleCount < filtered.length && (
-        <button className="btn secondary no-print" style={{ marginTop: 10 }} onClick={() => setVisibleCount((v) => v + 300)}>
-          Show more ({filtered.length - visibleCount} remaining)
-        </button>
-      )}
+      <p className="pr-note">{filtered.length.toLocaleString('en-IN')} consumer(s) match.</p>
+      <DataTable
+        columns={[
+          { header: 'ESD', render: (r) => esdName(esdMap, r.esd_code) },
+          { header: 'Consumer No', render: (r) => r.consumer_no },
+          { header: 'Name', render: (r) => r.consumer_name, left: true },
+          { header: 'Category', render: (r) => r.category_name },
+          { header: 'Paid date', render: (r) => fmtDate(r.paid_date) || '-', num: true },
+          { header: 'Paid amount (Rs)', render: (r) => money(r.paid_amount), num: true },
+          { header: 'Balance now (Rs)', render: (r) => money(r.balance_now), num: true },
+        ]}
+        rows={filtered.slice(0, visible)}
+      />
+      <ShowMore visible={visible} total={filtered.length} onMore={() => setVisible((v) => v + 300)} />
     </div>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Call list
+// ---------------------------------------------------------------------------
 function CallListTab({ reportDate, callListRows, esdMap }) {
   const [esdFilter, setEsdFilter] = useState('');
   const [bandFilter, setBandFilter] = useState('');
   const [search, setSearch] = useState('');
-  const [visibleCount, setVisibleCount] = useState(300);
-  const [remarks, setRemarks] = useState(() => {
-    const m = {};
-    for (const r of callListRows) m[`${r.consumer_no}|${r.esd_code}`] = r.remark || '';
-    return m;
-  });
+  const [visible, setVisible] = useState(300);
   const [savingKey, setSavingKey] = useState(null);
-
   const bands = ['3-6 months', '6-12 months', 'Above 1 year', 'No payment record'];
 
   const filtered = useMemo(() => {
@@ -269,17 +296,13 @@ function CallListTab({ reportDate, callListRows, esdMap }) {
     return callListRows.filter((r) => {
       if (esdFilter && r.esd_code !== esdFilter) return false;
       if (bandFilter && r.band !== bandFilter) return false;
-      if (q) {
-        const hay = `${r.consumer_name} ${r.consumer_no} ${r.phone_no} ${r.consumer_address}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
+      if (q && !`${r.consumer_name} ${r.consumer_no} ${r.phone_no} ${r.serial_no}`.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [callListRows, esdFilter, bandFilter, search]);
 
   async function saveRemark(consumerNo, esdCode, value) {
     const key = `${consumerNo}|${esdCode}`;
-    setRemarks((m) => ({ ...m, [key]: value }));
     setSavingKey(key);
     try {
       await fetch('/api/prepaid-recovery/remark', {
@@ -295,172 +318,65 @@ function CallListTab({ reportDate, callListRows, esdMap }) {
   return (
     <div>
       <div className="no-print field-row" style={{ marginBottom: 10 }}>
-        <select value={esdFilter} onChange={(e) => setEsdFilter(e.target.value)}>
-          <option value="">All ESDs</option>
-          {Object.entries(esdMap).map(([code, label]) => (
-            <option key={code} value={code}>{label}</option>
-          ))}
-        </select>
+        <EsdSelect esdMap={esdMap} value={esdFilter} onChange={setEsdFilter} />
         <select value={bandFilter} onChange={(e) => setBandFilter(e.target.value)}>
           <option value="">All bands</option>
           {bands.map((b) => <option key={b} value={b}>{bandLabel(b)}</option>)}
         </select>
-        <input
-          type="text"
-          placeholder="Search name / consumer no / phone / address"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ minWidth: 260 }}
-        />
-        <a className="btn" href={`/api/prepaid-recovery/export/calllist/${reportDate}`}>Download Excel</a>
+        <input type="text" placeholder="Search name / consumer no / phone / Sr. No." value={search}
+          onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 260 }} />
+        <ExcelButton href={`/api/prepaid-recovery/export/calllist/${reportDate}`} />
       </div>
-      <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>
-        {filtered.length.toLocaleString('en-IN')} consumer(s) match.
-      </div>
-      <table className="print-table" style={tableStyle}>
-        <thead>
-          <tr>
-            <th style={th}>Sr. No.</th><th style={th}>ESD</th><th style={th}>Consumer No</th><th style={th}>Name</th>
-            <th style={th}>Address</th><th style={th}>Category</th><th style={th}>Status</th>
-            <th style={th}>Phone</th><th style={th}>Last Payment</th><th style={th}>Neg. Balance</th>
-            <th style={th}>Not Recharged For</th><th style={th}>Remarks</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.slice(0, visibleCount).map((r) => {
-            const key = `${r.consumer_no}|${r.esd_code}`;
-            return (
-              <tr key={key}>
-                <td style={td}>{r.serial_no ?? '-'}</td>
-                <td style={td}>{esdMap[r.esd_code] || r.esd_code}</td>
-                <td style={td}>{r.consumer_no}</td>
-                <td style={td}>{r.consumer_name}</td>
-                <td style={td}>{r.consumer_address}</td>
-                <td style={td}>{r.category_name}</td>
-                <td style={td}>{r.connection_status}</td>
-                <td style={td}>{r.phone_no}</td>
-                <td style={td}>{r.last_payment_date || 'No record'}</td>
-                <td style={td}>{inr(r.balance)}</td>
-                <td style={td}>{bandLabel(r.band)}</td>
-                <td className="no-print" style={{ ...td, textAlign: 'left' }}>
-                  <input
-                    type="text"
-                    defaultValue={remarks[key] ?? ''}
-                    onBlur={(e) => saveRemark(r.consumer_no, r.esd_code, e.target.value)}
-                    style={{ width: '100%', fontSize: 12 }}
-                  />
-                  {savingKey === key && <span style={{ fontSize: 11, color: '#6b7280' }}> saving…</span>}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {visibleCount < filtered.length && (
-        <button className="btn secondary no-print" style={{ marginTop: 10 }} onClick={() => setVisibleCount((v) => v + 300)}>
-          Show more ({filtered.length - visibleCount} remaining)
-        </button>
-      )}
-    </div>
-  );
-}
-
-function ExcludedTab({ reportDate, excludedRows, esdMap }) {
-  const [esdFilter, setEsdFilter] = useState('');
-  const [reasonFilter, setReasonFilter] = useState('');
-  const [visibleCount, setVisibleCount] = useState(300);
-
-  // Always offer every category — even one with zero consumers today (e.g. GHDT) —
-  // so it is clear the rule ran and found nobody, rather than looking missing.
-  const reasons = useMemo(
-    () => [...new Set([...ALL_EXCLUDE_REASONS, ...excludedRows.map((r) => r.reason_category)])],
-    [excludedRows],
-  );
-
-  const byReasonCount = useMemo(() => {
-    const m = {};
-    for (const r of excludedRows) m[r.reason_category] = (m[r.reason_category] || 0) + 1;
-    return m;
-  }, [excludedRows]);
-
-  const filtered = useMemo(() => excludedRows.filter((r) => {
-    if (esdFilter && r.esd_code !== esdFilter) return false;
-    if (reasonFilter && r.reason_category !== reasonFilter) return false;
-    return true;
-  }), [excludedRows, esdFilter, reasonFilter]);
-
-  return (
-    <div>
-      <p style={{ color: '#6b7280', fontSize: 13 }}>
-        These consumers are dropped by the scope rules (government, PDC, tower/department, category not in
-        scope, GHDT, name keyword, or no usable phone number) and never appear in the Summary, Payments or
-        Call List tabs. Filter by ESD or by reason category below.
+      <p className="pr-note">
+        {filtered.length.toLocaleString('en-IN')} consumer(s) match. Sr. No. is the position within the ESD:
+        1 = largest negative balance. Use it to allot work on the Allotments tab.
       </p>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-        {reasons.map((r) => (
-          <span key={r} style={{ background: '#f0f4f8', borderRadius: 999, padding: '6px 12px', fontSize: 13 }}>
-            {reasonLabel(r)}: {byReasonCount[r] || 0}
-          </span>
-        ))}
-        <span style={{ background: '#fff2cc', borderRadius: 999, padding: '6px 12px', fontSize: 13, fontWeight: 700 }}>
-          Total: {excludedRows.length}
-        </span>
-      </div>
-      <div className="no-print field-row" style={{ marginBottom: 10 }}>
-        <select value={esdFilter} onChange={(e) => setEsdFilter(e.target.value)}>
-          <option value="">All ESDs</option>
-          {Object.entries(esdMap).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-        </select>
-        <select value={reasonFilter} onChange={(e) => setReasonFilter(e.target.value)}>
-          <option value="">All reasons</option>
-          {reasons.map((r) => <option key={r} value={r}>{reasonLabel(r)}</option>)}
-        </select>
-        <a className="btn" href={`/api/prepaid-recovery/export/excluded/${reportDate}`}>Download Excel</a>
-      </div>
-      <table className="print-table" style={tableStyle}>
-        <thead>
-          <tr>
-            <th style={th}>ESD</th><th style={th}>Consumer No</th><th style={th}>Name</th>
-            <th style={th}>Category</th><th style={th}>Status</th><th style={th}>Phone</th>
-            <th style={th}>Balance</th><th style={th}>Reason</th><th style={th}>Detail</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.slice(0, visibleCount).map((r, i) => (
-            <tr key={`${r.consumer_no}-${i}`}>
-              <td style={td}>{esdMap[r.esd_code] || r.esd_code}</td>
-              <td style={td}>{r.consumer_no}</td>
-              <td style={td}>{r.consumer_name}</td>
-              <td style={td}>{r.category_name}</td>
-              <td style={td}>{r.connection_status}</td>
-              <td style={td}>{r.phone_no}</td>
-              <td style={td}>{inr(r.balance)}</td>
-              <td style={td}>{reasonLabel(r.reason_category)}</td>
-              <td style={td}>{r.reason_detail}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {visibleCount < filtered.length && (
-        <button className="btn secondary no-print" style={{ marginTop: 10 }} onClick={() => setVisibleCount((v) => v + 300)}>
-          Show more ({filtered.length - visibleCount} remaining)
-        </button>
-      )}
+      <DataTable
+        tall
+        columns={[
+          { header: 'Sr. No.', render: (r) => r.serial_no, num: true },
+          { header: 'ESD', render: (r) => esdName(esdMap, r.esd_code) },
+          { header: 'Consumer No', render: (r) => r.consumer_no },
+          { header: 'Name', render: (r) => r.consumer_name, left: true },
+          { header: 'Category', render: (r) => r.category_name },
+          { header: 'Status', render: (r) => r.connection_status },
+          { header: 'Phone', render: (r) => r.phone_no, num: true },
+          { header: 'Last Payment', render: (r) => fmtDate(r.last_payment_date) || 'No record', num: true },
+          { header: 'Negative Balance (Rs)', render: (r) => money(r.balance), num: true },
+          { header: 'Not Recharged For', render: (r) => bandLabel(r.band) },
+          {
+            header: 'Remarks',
+            left: true,
+            render: (r) => (
+              <>
+                <input
+                  className="pr-remark"
+                  type="text"
+                  defaultValue={r.remark || ''}
+                  onBlur={(e) => saveRemark(r.consumer_no, r.esd_code, e.target.value)}
+                />
+                {savingKey === `${r.consumer_no}|${r.esd_code}` && <span style={{ fontSize: 11, color: '#6b7280' }}> saving…</span>}
+              </>
+            ),
+          },
+        ]}
+        rows={filtered.slice(0, visible)}
+      />
+      <ShowMore visible={visible} total={filtered.length} onMore={() => setVisible((v) => v + 300)} />
     </div>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Still unpaid tracker
+// ---------------------------------------------------------------------------
 function StillUnpaidTab({ reportDate, previousDate, stillUnpaidTracker, esdMap }) {
   const [esdFilter, setEsdFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [visibleCount, setVisibleCount] = useState(300);
-
-  if (!previousDate) {
-    return <p>No earlier report exists yet to compare against — this will show up once a second day is uploaded.</p>;
-  }
+  const [visible, setVisible] = useState(300);
 
   const counts = useMemo(() => {
-    const m = { 'Still unpaid': 0, 'Paid since last upload': 0, 'No longer in report': 0 };
+    const m = { 'Still unpaid': 0, 'Paid since last report': 0, 'No longer in report': 0 };
     for (const r of stillUnpaidTracker) m[r.status] = (m[r.status] || 0) + 1;
     return m;
   }, [stillUnpaidTracker]);
@@ -471,161 +387,148 @@ function StillUnpaidTab({ reportDate, previousDate, stillUnpaidTracker, esdMap }
     return true;
   }), [stillUnpaidTracker, esdFilter, statusFilter]);
 
+  if (!previousDate) {
+    return <p className="pr-note">No earlier report is on file yet, so there is nothing to compare. This tab fills in once a second report is uploaded.</p>;
+  }
+
   return (
     <div>
-      <p style={{ color: '#6b7280', fontSize: 13 }}>
-        Comparing today&apos;s ({reportDate}) call list to the previous report on {previousDate}.
+      <p className="pr-note">
+        The call list of {fmtDate(previousDate)} compared with this report ({fmtDate(reportDate)}). Only the
+        previous report is ever used for this comparison.
       </p>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-        <span style={{ background: '#f8cbcb', borderRadius: 999, padding: '6px 12px', fontSize: 13 }}>Still unpaid: {counts['Still unpaid']}</span>
-        <span style={{ background: '#d6f0db', borderRadius: 999, padding: '6px 12px', fontSize: 13 }}>Paid since last upload: {counts['Paid since last upload']}</span>
-        <span style={{ background: '#f0f4f8', borderRadius: 999, padding: '6px 12px', fontSize: 13 }}>No longer in report: {counts['No longer in report']}</span>
+      <div className="pr-chips">
+        <span className="pr-chip bad">Still unpaid: {int(counts['Still unpaid'])}</span>
+        <span className="pr-chip good">Paid since last report: {int(counts['Paid since last report'])}</span>
+        <span className="pr-chip">No longer in report: {int(counts['No longer in report'])}</span>
       </div>
       <div className="no-print field-row" style={{ marginBottom: 10 }}>
-        <select value={esdFilter} onChange={(e) => setEsdFilter(e.target.value)}>
-          <option value="">All ESDs</option>
-          {Object.entries(esdMap).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-        </select>
+        <EsdSelect esdMap={esdMap} value={esdFilter} onChange={setEsdFilter} />
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="">All statuses</option>
           <option value="Still unpaid">Still unpaid</option>
-          <option value="Paid since last upload">Paid since last upload</option>
+          <option value="Paid since last report">Paid since last report</option>
           <option value="No longer in report">No longer in report</option>
         </select>
+        <ExcelButton href={`/api/prepaid-recovery/export/stillunpaid/${reportDate}`} />
       </div>
-      <table className="print-table" style={tableStyle}>
-        <thead>
-          <tr>
-            <th style={th}>ESD</th><th style={th}>Consumer No</th><th style={th}>Name</th>
-            <th style={th}>Balance ({previousDate})</th><th style={th}>Not Recharged For ({previousDate})</th>
-            <th style={th}>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.slice(0, visibleCount).map((r, i) => (
-            <tr key={`${r.consumerNo}-${i}`}>
-              <td style={td}>{esdMap[r.esdCode] || r.esdCode}</td>
-              <td style={td}>{r.consumerNo}</td>
-              <td style={td}>{r.consumerName}</td>
-              <td style={td}>{inr(r.balance)}</td>
-              <td style={td}>{bandLabel(r.band)}</td>
-              <td style={td}>{r.status}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {visibleCount < filtered.length && (
-        <button className="btn secondary no-print" style={{ marginTop: 10 }} onClick={() => setVisibleCount((v) => v + 300)}>
-          Show more ({filtered.length - visibleCount} remaining)
-        </button>
-      )}
+      <DataTable
+        columns={[
+          { header: 'ESD', render: (r) => esdName(esdMap, r.esdCode) },
+          { header: 'Consumer No', render: (r) => r.consumerNo },
+          { header: 'Name', render: (r) => r.consumerName, left: true },
+          { header: `Balance on ${fmtDate(previousDate)} (Rs)`, render: (r) => money(r.balance), num: true },
+          { header: `Not Recharged For (${fmtDate(previousDate)})`, render: (r) => bandLabel(r.band) },
+          { header: 'Status', render: (r) => r.status },
+        ]}
+        rows={filtered.slice(0, visible)}
+      />
+      <ShowMore visible={visible} total={filtered.length} onMore={() => setVisible((v) => v + 300)} />
     </div>
   );
 }
 
-function GoodStandingTab({ reportDate, esdMap }) {
+// ---------------------------------------------------------------------------
+// Excluded
+// ---------------------------------------------------------------------------
+function ExcludedTab({ reportDate, excludedRows, summaryRows, esdMap }) {
   const [esdFilter, setEsdFilter] = useState('');
-  const [q, setQ] = useState('');
-  const [debouncedQ, setDebouncedQ] = useState('');
-  const [rows, setRows] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const reqIdRef = useRef(0);
-  const PAGE_SIZE = 300;
+  const [reasonFilter, setReasonFilter] = useState('');
+  const [paidOnly, setPaidOnly] = useState(false);
+  const [visible, setVisible] = useState(300);
+  const paidFrom = (summaryRows[0] || {}).paid_from_date;
 
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedQ(q.trim()), 350);
-    return () => clearTimeout(t);
-  }, [q]);
+  const sums = useMemo(() => summarizeExcludedRows(excludedRows), [excludedRows]);
+  const reasons = sums.reasons;
+  const codes = useMemo(
+    () => [...new Set([...summaryRows.map((r) => r.esd_code), ...excludedRows.map((r) => r.esd_code)])].sort(),
+    [summaryRows, excludedRows],
+  );
 
-  useEffect(() => {
-    setOffset(0);
-  }, [esdFilter, debouncedQ, reportDate]);
+  const catRows = [
+    ...reasons.map((reason) => ({ reason, ...sums.byReason[reason] })),
+    { _total: true, reason: 'Total excluded', ...sums.total },
+  ];
+  const matrixRows = [
+    ...reasons.map((reason) => ({ reason, vals: codes.map((c) => sums.matrix[reason][c] || 0), total: sums.byReason[reason].n })),
+    { _total: true, reason: 'Total excluded', vals: codes.map((c) => reasons.reduce((t, reason) => t + (sums.matrix[reason][c] || 0), 0)), total: sums.total.n },
+  ];
 
-  useEffect(() => {
-    const myReqId = ++reqIdRef.current;
-    setLoading(true);
-    setError('');
-    const params = new URLSearchParams({
-      reportDate, offset: String(offset), limit: String(PAGE_SIZE),
-    });
-    if (esdFilter) params.set('esdCode', esdFilter);
-    if (debouncedQ) params.set('q', debouncedQ);
-    fetch(`/api/prepaid-recovery/good-standing/search?${params.toString()}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (reqIdRef.current !== myReqId) return;
-        if (d.error) { setError(d.error); setRows([]); setTotal(0); return; }
-        setRows((prev) => (offset === 0 ? d.rows : [...prev, ...d.rows]));
-        setTotal(d.total ?? 0);
-      })
-      .catch((err) => { if (reqIdRef.current === myReqId) setError(err.message || 'Search failed.'); })
-      .finally(() => { if (reqIdRef.current === myReqId) setLoading(false); });
-  }, [reportDate, esdFilter, debouncedQ, offset]);
+  const filtered = useMemo(() => excludedRows.filter((r) => {
+    if (esdFilter && r.esd_code !== esdFilter) return false;
+    if (reasonFilter && r.reason_category !== reasonFilter) return false;
+    if (paidOnly && !r.paid_since_last) return false;
+    return true;
+  }), [excludedRows, esdFilter, reasonFilter, paidOnly]);
 
   return (
     <div>
-      <p style={{ color: '#6b7280', fontSize: 13 }}>
-        Consumers who are eligible for prepaid recovery tracking but are not currently a defaulter — balance
-        above the threshold, or recharged within the grace period. Together with Call List and Excluded, every
-        consumer in the uploaded files can be found in one of these three places. Search to look someone up;
-        this list is too large to browse in full.
+      <div className="no-print" style={{ marginBottom: 10 }}>
+        <ExcelButton href={`/api/prepaid-recovery/export/excluded/${reportDate}`} />
+      </div>
+      <p className="pr-note">
+        These consumers are kept out of the Summary, Payments and Call List (government, PDC, tower/department,
+        category not in scope, GHDT, name keyword, or no usable phone number) but are tracked here, including
+        whether any of them paid. {paidWindow(reportDate, paidFrom)} Each consumer is listed under the first rule
+        that applies. A category showing 0 means the rule ran and found nobody.
       </p>
+      <DataTable
+        columns={[
+          { header: 'Excluded category', render: (r) => reasonLabel(r.reason), left: true },
+          { header: 'Consumers', render: (r) => int(r.n), num: true },
+          { header: 'Negative balance (Lakhs)', render: (r) => lakhs(r.negAmt), num: true },
+          { header: 'Paid since last report (consumers)', render: (r) => int(r.paidN), num: true },
+          { header: 'Paid since last report (Rs)', render: (r) => money(r.paidAmt), num: true },
+        ]}
+        rows={catRows}
+      />
+      <h3 className="pr-h">Category x ESD</h3>
+      <DataTable
+        columns={[
+          { header: 'Excluded category', render: (r) => reasonLabel(r.reason), left: true },
+          ...codes.map((c, i) => ({ header: esdName(esdMap, c), render: (r) => int(r.vals[i]), num: true })),
+          { header: 'Total', render: (r) => int(r.total), num: true },
+        ]}
+        rows={matrixRows}
+      />
+      <h3 className="pr-h">Consumer list</h3>
       <div className="no-print field-row" style={{ marginBottom: 10 }}>
-        <select value={esdFilter} onChange={(e) => setEsdFilter(e.target.value)}>
-          <option value="">All ESDs</option>
-          {Object.entries(esdMap).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+        <EsdSelect esdMap={esdMap} value={esdFilter} onChange={setEsdFilter} />
+        <select value={reasonFilter} onChange={(e) => setReasonFilter(e.target.value)}>
+          <option value="">All categories</option>
+          {reasons.map((r) => <option key={r} value={r}>{reasonLabel(r)}</option>)}
         </select>
-        <input
-          type="text"
-          placeholder="Search name / consumer no"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          style={{ minWidth: 260 }}
-        />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+          <input type="checkbox" checked={paidOnly} onChange={(e) => setPaidOnly(e.target.checked)} />
+          Only those who paid since last report
+        </label>
       </div>
-      {error && <div className="status error" style={{ marginBottom: 10 }}>{error}</div>}
-      <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>
-        {loading && offset === 0 ? 'Searching…' : `${total.toLocaleString('en-IN')} consumer(s) match.`}
-      </div>
-      <table className="print-table" style={tableStyle}>
-        <thead>
-          <tr>
-            <th style={th}>ESD</th><th style={th}>Consumer No</th><th style={th}>Name</th>
-            <th style={th}>Category</th><th style={th}>Balance</th><th style={th}>Last Payment</th>
-            <th style={th}>Why not in call list</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={`${r.consumer_no}-${i}`}>
-              <td style={td}>{esdMap[r.esd_code] || r.esd_code}</td>
-              <td style={td}>{r.consumer_no}</td>
-              <td style={td}>{r.consumer_name}</td>
-              <td style={td}>{r.category_name}</td>
-              <td style={td}>{inr(r.balance)}</td>
-              <td style={td}>{r.last_payment_date || 'No record'}</td>
-              <td style={td}>{r.skip_reason}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {rows.length < total && (
-        <button
-          className="btn secondary no-print"
-          style={{ marginTop: 10 }}
-          disabled={loading}
-          onClick={() => setOffset((o) => o + PAGE_SIZE)}
-        >
-          {loading ? 'Loading…' : `Show more (${total - rows.length} remaining)`}
-        </button>
-      )}
+      <p className="pr-note">{filtered.length.toLocaleString('en-IN')} consumer(s) match.</p>
+      <DataTable
+        columns={[
+          { header: 'ESD', render: (r) => esdName(esdMap, r.esd_code) },
+          { header: 'Consumer No', render: (r) => r.consumer_no },
+          { header: 'Name', render: (r) => r.consumer_name, left: true },
+          { header: 'Category', render: (r) => r.category_name },
+          { header: 'Status', render: (r) => r.connection_status },
+          { header: 'Phone', render: (r) => r.phone_no, num: true },
+          { header: 'Balance (Rs)', render: (r) => money(r.balance), num: true },
+          { header: 'Excluded because', render: (r) => reasonLabel(r.reason_category), left: true },
+          { header: 'Detail', render: (r) => r.reason_detail, left: true },
+          { header: 'Paid since last report', render: (r) => (r.paid_since_last ? 'Yes' : 'No') },
+          { header: 'Paid date', render: (r) => (r.paid_since_last ? fmtDate(r.last_payment_date) : '-'), num: true },
+          { header: 'Paid amount (Rs)', render: (r) => (r.paid_since_last ? money(r.last_payment_amount) : '-'), num: true },
+        ]}
+        rows={filtered.slice(0, visible)}
+      />
+      <ShowMore visible={visible} total={filtered.length} onMore={() => setVisible((v) => v + 300)} />
     </div>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Allotments
+// ---------------------------------------------------------------------------
 function AllotmentsTab({ reportDate, esdMap, callListRows }) {
   const [esdCode, setEsdCode] = useState('');
   const [fromSerial, setFromSerial] = useState('');
@@ -667,7 +570,7 @@ function AllotmentsTab({ reportDate, esdMap, callListRows }) {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Failed.');
-      setMsg(`Allotted ${d.allotment.consumer_count} consumers to "${d.allotment.label}". Open this tab on a later report to see how many paid.`);
+      setMsg(`Allotted ${d.allotment.consumer_count} consumers to "${d.allotment.label}". Open this tab on the next report to see how many have paid.`);
       setFromSerial(''); setToSerial(''); setLabel('');
       await load();
     } catch (e) { setMsg(`Error: ${e.message}`); } finally { setBusy(false); }
@@ -698,20 +601,36 @@ function AllotmentsTab({ reportDate, esdMap, callListRows }) {
     return t;
   }, [list]);
 
+  const summaryRows = useMemo(() => {
+    if (!list) return [];
+    return [
+      ...list.map((e) => ({ e })),
+      { _total: true, t: totals },
+    ];
+  }, [list, totals]);
+
+  const pendingCell = (r, fn) => (r.e && r.e.pending ? '-' : fn(r));
+  const cell = (fn) => (r) => {
+    if (r._total) return fn(r.t);
+    if (r.e.pending) return '-';
+    return fn(r.e.stats);
+  };
+
   return (
     <div>
-      <p style={{ color: '#6b7280', fontSize: 13 }}>
-        Hand out calling work by ESD and serial number range (Sr. No. is shown in the Call List tab; 1 = largest
-        negative balance). The consumers are saved when you allot them. Open this tab on a later day&apos;s report
-        to see, for each allotment, how many have since paid. &quot;Cleared&quot; means the consumer&apos;s balance is
-        no longer a defaulter (recharged earlier or back above the threshold).
+      <p className="pr-note">
+        Hand out calling work by ESD and Sr. No. range (see the Call List tab). The consumers are saved the
+        moment you allot them, so changing serial numbers on later reports never affects an allotment. Open this
+        tab on any later report to see how many of each allotment have paid since: <b>Paid</b> = recharged since
+        allotment; <b>Balance cleared</b> = no longer a defaulter without a recorded payment; <b>Still unpaid</b> =
+        still on the call list; <b>Not in report</b> = now excluded or gone.
       </p>
 
       <div className="no-print field-row" style={{ marginBottom: 10 }}>
         <select value={esdCode} onChange={(e) => setEsdCode(e.target.value)}>
           <option value="">Choose ESD</option>
           {Object.entries(esdMap).map(([code, l]) => (
-            <option key={code} value={code}>{l} ({callCounts[code] || 0} on call list)</option>
+            <option key={code} value={code}>{l} ({int(callCounts[code] || 0)} on call list)</option>
           ))}
         </select>
         <input type="number" min="1" placeholder="From Sr. No." value={fromSerial}
@@ -721,96 +640,69 @@ function AllotmentsTab({ reportDate, esdMap, callListRows }) {
         <input type="text" placeholder="Allotted to (caller name)" value={label}
           onChange={(e) => setLabel(e.target.value)} style={{ minWidth: 200 }} />
         <button className="btn" onClick={create} disabled={busy}>{busy ? 'Saving…' : 'Create allotment'}</button>
-        <a className="btn" href={`/api/prepaid-recovery/export/allotments/${reportDate}`}>Download Excel</a>
+        <ExcelButton href={`/api/prepaid-recovery/export/allotments/${reportDate}`} />
       </div>
       {msg && <div className={`status ${msg.startsWith('Error') ? 'error' : ''}`} style={{ marginBottom: 10 }}>{msg}</div>}
       {error && <div className="status error" style={{ marginBottom: 10 }}>{error}</div>}
 
-      {list && list.length === 0 && <p>No allotments yet.</p>}
+      {list && list.length === 0 && <p className="pr-note">No allotments yet.</p>}
       {list && list.length > 0 && (
-        <table className="print-table" style={tableStyle}>
-          <thead>
-            <tr>
-              <th style={th}>Allotted to</th><th style={th}>ESD</th><th style={th}>Sr. No. range</th>
-              <th style={th}>Allotted on</th><th style={th}>Consumers allotted</th>
-              <th style={th}>Paid since allotment</th><th style={th}>Cleared</th>
-              <th style={th}>Total recovered</th><th style={th}>Still unpaid</th>
-              <th style={th}>Not in report</th><th style={th}>Recovered %</th>
-              <th style={th}>Amount paid (Rs)</th><th className="no-print" style={th}> </th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((e) => {
-              const a = e.allotment;
-              const st = e.stats;
-              return (
-                <tr key={a.id}>
-                  <td style={td}>{a.label}</td>
-                  <td style={td}>{esdMap[a.esd_code] || a.esd_code}</td>
-                  <td style={td}>{a.from_serial}-{a.to_serial}</td>
-                  <td style={td}>{a.allotted_on}</td>
-                  <td style={td}>{a.consumer_count}</td>
-                  {e.pending ? (
-                    <td style={td} colSpan={7}>Allotted on this report — check from the next report</td>
-                  ) : (
-                    <>
-                      <td style={td}>{st.paid}</td><td style={td}>{st.cleared}</td>
-                      <td style={td}><b>{st.recovered}</b></td><td style={td}>{st.stillUnpaid}</td>
-                      <td style={td}>{st.notInReport}</td><td style={td}>{st.recoveredPct.toFixed(1)}%</td>
-                      <td style={td}>{inr(st.paidAmount)}</td>
-                    </>
-                  )}
-                  <td className="no-print" style={td}>
-                    {!e.pending && <button className="btn secondary" onClick={() => toggle(a.id)}>{openId === a.id ? 'Hide' : 'View'}</button>}
-                    {' '}<button className="btn secondary" onClick={() => remove(a.id)}>Delete</button>
-                  </td>
-                </tr>
-              );
-            })}
-            <tr style={{ fontWeight: 700, background: '#fff2cc' }}>
-              <td style={td} colSpan={4}>TOTAL (all allotments checked against {reportDate})</td>
-              <td style={td}>{totals.allotted}</td><td style={td}>{totals.paid}</td><td style={td}>{totals.cleared}</td>
-              <td style={td}>{totals.recovered}</td><td style={td}>{totals.stillUnpaid}</td>
-              <td style={td}>{totals.notInReport}</td><td style={td}>{totals.pct.toFixed(1)}%</td>
-              <td style={td}>{inr(totals.paidAmount)}</td><td className="no-print" style={td}> </td>
-            </tr>
-          </tbody>
-        </table>
+        <DataTable
+          columns={[
+            { header: 'Allotted to', render: (r) => (r._total ? 'TOTAL' : r.e.allotment.label), left: true },
+            { header: 'ESD', render: (r) => (r._total ? '' : esdName(esdMap, r.e.allotment.esd_code)) },
+            { header: 'Sr. No. range', render: (r) => (r._total ? '' : `${r.e.allotment.from_serial}-${r.e.allotment.to_serial}`), num: true },
+            { header: 'Allotted on', render: (r) => (r._total ? '' : fmtDate(r.e.allotment.allotted_on)), num: true },
+            { header: 'Consumers allotted', render: (r) => (r._total ? int(r.t.allotted) : int(r.e.allotment.consumer_count)), num: true },
+            { header: 'Paid since allotment', render: (r) => (!r._total && r.e.pending ? 'Check from next report' : int(cell((s) => s.paid)(r))), num: true },
+            { header: 'Balance cleared', render: (r) => (!r._total && r.e.pending ? '-' : int(cell((s) => s.cleared)(r))), num: true },
+            { header: 'Total recovered', render: (r) => (!r._total && r.e.pending ? '-' : int(cell((s) => s.recovered)(r))), num: true },
+            { header: 'Still unpaid', render: (r) => (!r._total && r.e.pending ? '-' : int(cell((s) => s.stillUnpaid)(r))), num: true },
+            { header: 'Not in report', render: (r) => (!r._total && r.e.pending ? '-' : int(cell((s) => s.notInReport)(r))), num: true },
+            { header: 'Recovered %', render: (r) => (!r._total && r.e.pending ? '-' : `${(r._total ? r.t.pct : r.e.stats.recoveredPct).toFixed(1)}%`), num: true },
+            { header: 'Amount paid (Rs)', render: (r) => (!r._total && r.e.pending ? '-' : money(cell((s) => s.paidAmount)(r))), num: true },
+            {
+              header: 'Actions',
+              render: (r) => (r._total ? '' : (
+                <span className="no-print">
+                  {!r.e.pending && <button className="btn secondary" onClick={() => toggle(r.e.allotment.id)}>{openId === r.e.allotment.id ? 'Hide' : 'View'}</button>}
+                  {' '}<button className="btn secondary" onClick={() => remove(r.e.allotment.id)}>Delete</button>
+                </span>
+              )),
+            },
+          ]}
+          rows={summaryRows}
+        />
       )}
 
       {openId && (
-        <div style={{ marginTop: 16 }}>
-          {!detail && <p>Loading…</p>}
+        <div style={{ marginTop: 6 }}>
+          {!detail && <p className="pr-note">Loading…</p>}
           {detail && (
             <>
               <div className="no-print field-row" style={{ marginBottom: 8 }}>
                 <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                   <option value="">All statuses</option>
                   <option value="Paid">Paid</option>
-                  <option value="Cleared">Cleared</option>
+                  <option value="Balance cleared">Balance cleared</option>
                   <option value="Still unpaid">Still unpaid</option>
                   <option value="Not in report">Not in report</option>
                 </select>
               </div>
-              <table className="print-table" style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={th}>Sr. No.</th><th style={th}>Consumer No</th><th style={th}>Name</th>
-                    <th style={th}>Phone</th><th style={th}>Not Recharged For (at allotment)</th>
-                    <th style={th}>Balance at allotment</th><th style={th}>Status now</th><th style={th}>Amount paid</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.filter((it) => !statusFilter || it.status === statusFilter).map((it) => (
-                    <tr key={it.id}>
-                      <td style={td}>{it.serial_no}</td><td style={td}>{it.consumer_no}</td>
-                      <td style={td}>{it.consumer_name}</td><td style={td}>{it.phone_no}</td>
-                      <td style={td}>{bandLabel(it.band)}</td><td style={td}>{inr(it.balance)}</td>
-                      <td style={td}>{it.status}</td><td style={td}>{it.paid_amount != null ? inr(it.paid_amount) : ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable
+                columns={[
+                  { header: 'Sr. No.', render: (it) => it.serial_no, num: true },
+                  { header: 'Consumer No', render: (it) => it.consumer_no },
+                  { header: 'Name', render: (it) => it.consumer_name, left: true },
+                  { header: 'Phone', render: (it) => it.phone_no, num: true },
+                  { header: 'Not Recharged For (at allotment)', render: (it) => bandLabel(it.band) },
+                  { header: 'Balance at allotment (Rs)', render: (it) => money(it.balance), num: true },
+                  { header: 'Status now', render: (it) => it.status },
+                  { header: 'Paid date', render: (it) => (it.paid_date ? fmtDate(it.paid_date) : '-'), num: true },
+                  { header: 'Paid amount (Rs)', render: (it) => (it.paid_amount != null ? money(it.paid_amount) : '-'), num: true },
+                ]}
+                rows={detail.filter((it) => !statusFilter || it.status === statusFilter)}
+              />
             </>
           )}
         </div>
@@ -819,38 +711,249 @@ function AllotmentsTab({ reportDate, esdMap, callListRows }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Analysis: every consumer in the billing files
+// ---------------------------------------------------------------------------
+function AnalysisTab({ reportDate, previousDate, analysis, prevAnalysis, summaryRows, prevSummaryRows, esdMap }) {
+  const [scope, setScope] = useState('');
+  const codes = Object.keys(analysis || {}).sort();
+
+  const scoped = useMemo(() => mergedAnalysis(analysis, scope ? [scope] : null), [analysis, scope]);
+  const overview = useMemo(() => [
+    ...codes.map((c) => ({ label: esdName(esdMap, c), m: mergedAnalysis(analysis, [c]).overall })),
+    { _total: true, label: 'Goalpara Circle Total', m: mergedAnalysis(analysis).overall },
+  ], [analysis, esdMap]); // eslint-disable-line react-hooks/exhaustive-deps
+  const trend = useMemo(
+    () => (previousDate ? trendRows(summaryRows, prevSummaryRows, analysis, prevAnalysis) : null),
+    [previousDate, summaryRows, prevSummaryRows, analysis, prevAnalysis],
+  );
+
+  if (!analysis || codes.length === 0) {
+    return (
+      <p className="pr-note">
+        No analysis is stored for this report. Upload the billing files again for this date to generate it.
+      </p>
+    );
+  }
+
+  const metricCols = (first) => [
+    first,
+    ...ANALYSIS_COLUMNS.map((c) => ({ header: c.header, render: (r) => fmtBy(c.fmt, c.get(r.m)), num: true })),
+  ];
+  const scopeName = scope ? esdName(esdMap, scope) : 'All ESDs (Goalpara Circle)';
+  const paidFrom = (summaryRows[0] || {}).paid_from_date;
+
+  const crossBlock = (field, title, fmt) => {
+    const x = analysisCrossRows(scoped, field);
+    const rows = [...x.rows.map((r) => ({ ...r })), { _total: true, key: 'Total', vals: x.totals, total: x.grand }];
+    return (
+      <>
+        <h3 className="pr-h">{title}</h3>
+        <DataTable
+          columns={[
+            { header: 'Category', render: (r) => r.key, left: true },
+            ...x.conns.map((c, i) => ({ header: c, render: (r) => fmtBy(fmt, r.vals[i]), num: true })),
+            { header: 'Total', render: (r) => fmtBy(fmt, r.total), num: true },
+          ]}
+          rows={rows}
+        />
+      </>
+    );
+  };
+
+  return (
+    <div>
+      <div className="no-print field-row" style={{ marginBottom: 10 }}>
+        <EsdSelect esdMap={esdMap} value={scope} onChange={setScope} all="All ESDs (Goalpara Circle)" />
+        <ExcelButton href={`/api/prepaid-recovery/export/analysis/${reportDate}`}>Download Excel (all analysis)</ExcelButton>
+      </div>
+      <p className="pr-note">
+        Every consumer in the billing files, whether on the call list or not. <b>Negative balance</b> = sum of
+        negative prepaid balances. <b>Advance balance</b> = sum of positive balances. <b>Arrear</b> = the old
+        outstanding frozen when the consumer moved to prepaid; <b>Arrear outstanding</b> is what is still unpaid
+        (REM OS) and <b>Arrear recovered %</b> is the share already recovered through recharges and payments.
+        {' '}{paidWindow(reportDate, paidFrom)} <b>Normal</b> = not Government, Dept/Govt Tower or PDC. LDC is
+        listed even when no consumer has that status.
+      </p>
+
+      <h3 className="pr-h">ESD-wise overview</h3>
+      <DataTable columns={metricCols({ header: 'ESD', render: (r) => r.label, left: true })} rows={overview} />
+
+      <h3 className="pr-h" style={{ fontSize: 17, borderTop: '2px solid #1f3b5c', paddingTop: 14 }}>
+        Detailed analysis: {scopeName}
+      </h3>
+      {ANALYSIS_TABLES.map((tbl) => {
+        const { rows, total } = analysisTableRows(scoped, tbl.dim);
+        return (
+          <div key={tbl.dim}>
+            <h3 className="pr-h">{tbl.title}</h3>
+            <DataTable
+              columns={metricCols({ header: tbl.keyHeader, render: (r) => r.key, left: true })}
+              rows={[...rows, { _total: true, key: 'Total', m: total }]}
+            />
+          </div>
+        );
+      })}
+      {crossBlock('n', 'Category x connection status: consumers', 'int')}
+      {crossBlock('negAmt', 'Category x connection status: negative balance (Lakhs)', 'lakh')}
+
+      <h3 className="pr-h">Change since the previous report</h3>
+      {!trend ? (
+        <p className="pr-note">No earlier report is on file yet, so there is nothing to compare.</p>
+      ) : (
+        <>
+          <p className="pr-note">Previous report: {fmtDate(previousDate)}. Only the previous report is kept for comparison.</p>
+          <DataTable
+            columns={[
+              { header: 'Measure / ESD', render: (r) => r.label, left: true },
+              { header: `Previous (${fmtDate(previousDate)})`, render: (r) => fmtBy(r.fmt, r.prev), num: true },
+              { header: `This report (${fmtDate(reportDate)})`, render: (r) => fmtBy(r.fmt, r.now), num: true },
+              { header: 'Change', render: (r) => signed(r.fmt, r.prev == null ? null : r.now - r.prev), num: true },
+            ]}
+            rows={trend.metrics.flatMap((m) => [
+              { _section: true, _label: m.header },
+              ...trend.rows.map((r) => ({
+                _total: r.code === 'TOTAL',
+                label: r.code === 'TOTAL' ? 'Goalpara Circle Total' : esdName(esdMap, r.code),
+                fmt: m.fmt, prev: r.values[m.key].prev, now: r.values[m.key].now,
+              })),
+            ])}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Good standing (search only: the list is ~260,000 consumers)
+// ---------------------------------------------------------------------------
+function GoodStandingTab({ reportDate, esdMap }) {
+  const [esdFilter, setEsdFilter] = useState('');
+  const [q, setQ] = useState('');
+  const [debouncedQ, setDebouncedQ] = useState('');
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const reqIdRef = useRef(0);
+  const PAGE_SIZE = 300;
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q.trim()), 350);
+    return () => clearTimeout(t);
+  }, [q]);
+  useEffect(() => { setOffset(0); }, [esdFilter, debouncedQ, reportDate]);
+
+  useEffect(() => {
+    const myReqId = ++reqIdRef.current;
+    setLoading(true);
+    setError('');
+    const params = new URLSearchParams({ reportDate, offset: String(offset), limit: String(PAGE_SIZE) });
+    if (esdFilter) params.set('esdCode', esdFilter);
+    if (debouncedQ) params.set('q', debouncedQ);
+    fetch(`/api/prepaid-recovery/good-standing/search?${params.toString()}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (reqIdRef.current !== myReqId) return;
+        if (d.error) { setError(d.error); setRows([]); setTotal(0); return; }
+        setRows((prev) => (offset === 0 ? d.rows : [...prev, ...d.rows]));
+        setTotal(d.total ?? 0);
+      })
+      .catch((err) => { if (reqIdRef.current === myReqId) setError(err.message || 'Search failed.'); })
+      .finally(() => { if (reqIdRef.current === myReqId) setLoading(false); });
+  }, [reportDate, esdFilter, debouncedQ, offset]);
+
+  return (
+    <div>
+      <p className="pr-note">
+        Consumers in scope who are not defaulters: balance above the threshold, or recharged within the grace
+        period. With the Call List and Excluded tabs, every consumer in the billing files can be found. The list
+        is too large to browse, so search; the Excel download is one ESD at a time.
+      </p>
+      <div className="no-print field-row" style={{ marginBottom: 10 }}>
+        <EsdSelect esdMap={esdMap} value={esdFilter} onChange={setEsdFilter} />
+        <input type="text" placeholder="Search name / consumer no" value={q}
+          onChange={(e) => setQ(e.target.value)} style={{ minWidth: 260 }} />
+        {esdFilter && (
+          <ExcelButton href={`/api/prepaid-recovery/export/goodstanding/${reportDate}?esdCode=${esdFilter}`}>
+            Download Excel ({esdName(esdMap, esdFilter)})
+          </ExcelButton>
+        )}
+      </div>
+      {error && <div className="status error" style={{ marginBottom: 10 }}>{error}</div>}
+      <p className="pr-note">{loading && offset === 0 ? 'Searching…' : `${int(total)} consumer(s) match.`}</p>
+      <DataTable
+        columns={[
+          { header: 'ESD', render: (r) => esdName(esdMap, r.esd_code) },
+          { header: 'Consumer No', render: (r) => r.consumer_no },
+          { header: 'Name', render: (r) => r.consumer_name, left: true },
+          { header: 'Category', render: (r) => r.category_name },
+          { header: 'Balance (Rs)', render: (r) => money(r.balance), num: true },
+          { header: 'Last Payment', render: (r) => fmtDate(r.last_payment_date) || 'No record', num: true },
+          { header: 'Why not on call list', render: (r) => r.skip_reason, left: true },
+        ]}
+        rows={rows}
+      />
+      {rows.length < total && (
+        <button className="btn secondary no-print" disabled={loading} onClick={() => setOffset((o) => o + PAGE_SIZE)}>
+          {loading ? 'Loading…' : `Show more (${int(total - rows.length)} remaining)`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+const TABS = [
+  ['summary', 'Summary'],
+  ['payments', 'Payments'],
+  ['calllist', 'Call List'],
+  ['stillunpaid', 'Still Unpaid'],
+  ['excluded', 'Excluded'],
+  ['allotments', 'Allotments'],
+  ['analysis', 'Analysis'],
+  ['goodstanding', 'Good Standing'],
+];
+
 export default function PrepaidRecoveryView({
   reportDate, summaryRows, paymentsRows, callListRows, excludedRows, esdMap, previousDate, stillUnpaidTracker,
+  analysis, prevAnalysis, prevSummaryRows,
 }) {
   const [tab, setTab] = useState('summary');
 
   return (
-    <div>
-      <PRINT_CSS />
+    <div className="pr-scope">
+      <Styles />
       <div className="report-title">
-        <span>Prepaid Recovery — {reportDate}</span>
+        <span>Prepaid Reports — {fmtDate(reportDate)}</span>
         <a href="/prepaid-recovery" className="no-print">← Back to upload page</a>
       </div>
 
       <div className="tabs no-print" style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <button className={`btn ${tab === 'summary' ? '' : 'secondary'}`} onClick={() => setTab('summary')}>Summary</button>
-        <button className={`btn ${tab === 'payments' ? '' : 'secondary'}`} onClick={() => setTab('payments')}>Payments</button>
-        <button className={`btn ${tab === 'calllist' ? '' : 'secondary'}`} onClick={() => setTab('calllist')}>Call List</button>
-        <button className={`btn ${tab === 'stillunpaid' ? '' : 'secondary'}`} onClick={() => setTab('stillunpaid')}>Still Unpaid Tracker</button>
-        <button className={`btn ${tab === 'excluded' ? '' : 'secondary'}`} onClick={() => setTab('excluded')}>Excluded</button>
-        <button className={`btn ${tab === 'allotments' ? '' : 'secondary'}`} onClick={() => setTab('allotments')}>Allotments</button>
-        <button className={`btn ${tab === 'goodstanding' ? '' : 'secondary'}`} onClick={() => setTab('goodstanding')}>Good Standing</button>
+        {TABS.map(([id, label]) => (
+          <button key={id} className={`btn ${tab === id ? '' : 'secondary'}`} onClick={() => setTab(id)}>{label}</button>
+        ))}
       </div>
 
       <div className="card">
         {tab === 'summary' && <SummaryTab reportDate={reportDate} summaryRows={summaryRows} esdMap={esdMap} />}
-        {tab === 'payments' && <PaymentsTab reportDate={reportDate} paymentsRows={paymentsRows} esdMap={esdMap} />}
+        {tab === 'payments' && <PaymentsTab reportDate={reportDate} paymentsRows={paymentsRows} summaryRows={summaryRows} esdMap={esdMap} />}
         {tab === 'calllist' && <CallListTab reportDate={reportDate} callListRows={callListRows} esdMap={esdMap} />}
         {tab === 'stillunpaid' && (
           <StillUnpaidTab reportDate={reportDate} previousDate={previousDate} stillUnpaidTracker={stillUnpaidTracker} esdMap={esdMap} />
         )}
-        {tab === 'excluded' && <ExcludedTab reportDate={reportDate} excludedRows={excludedRows} esdMap={esdMap} />}
+        {tab === 'excluded' && <ExcludedTab reportDate={reportDate} excludedRows={excludedRows} summaryRows={summaryRows} esdMap={esdMap} />}
         {tab === 'allotments' && <AllotmentsTab reportDate={reportDate} esdMap={esdMap} callListRows={callListRows} />}
+        {tab === 'analysis' && (
+          <AnalysisTab
+            reportDate={reportDate} previousDate={previousDate} analysis={analysis} prevAnalysis={prevAnalysis}
+            summaryRows={summaryRows} prevSummaryRows={prevSummaryRows} esdMap={esdMap}
+          />
+        )}
         {tab === 'goodstanding' && <GoodStandingTab reportDate={reportDate} esdMap={esdMap} />}
       </div>
     </div>

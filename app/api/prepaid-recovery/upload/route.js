@@ -16,7 +16,7 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
 
-  const { reportDate, esdCode, esdLabel, summary, callListRows, paymentsRows, excludedRows, uploadedBy } = body || {};
+  const { reportDate, esdCode, esdLabel, summary, callListRows, paymentsRows, excludedRows, analysis, uploadedBy } = body || {};
 
   if (!reportDate || !/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) {
     return NextResponse.json({ error: 'reportDate must be YYYY-MM-DD.' }, { status: 400 });
@@ -31,11 +31,11 @@ export async function POST(request) {
   try {
     await replacePrepaidRecoveryForEsd({
       reportDate, esdCode, esdLabel, summary, callListRows, paymentsRows,
-      excludedRows: Array.isArray(excludedRows) ? excludedRows : [], uploadedBy,
+      excludedRows: Array.isArray(excludedRows) ? excludedRows : [], analysis: analysis || null, uploadedBy,
     });
     return NextResponse.json({ ok: true, esdCode, callListCount: callListRows.length, paymentsCount: paymentsRows.length });
   } catch (err) {
-    console.error('Prepaid Recovery upload failed', err);
+    console.error('Prepaid Reports upload failed', err);
     return NextResponse.json({ error: err.message || 'Upload failed.' }, { status: 500 });
   }
 }

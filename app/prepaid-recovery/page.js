@@ -9,12 +9,12 @@ export default async function PrepaidRecoveryPage() {
   try {
     dates = await listAvailableDates();
   } catch (err) {
-    console.error('Could not list Prepaid Recovery dates', err);
+    console.error('Could not list Prepaid Reports dates', err);
   }
 
   return (
     <div>
-      <h1>Prepaid Recovery</h1>
+      <h1>Prepaid Reports</h1>
       <PrepaidRecoveryUpload />
 
       {dates.length > 0 && (

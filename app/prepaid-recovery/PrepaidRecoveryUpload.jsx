@@ -67,6 +67,14 @@ export default function PrepaidRecoveryUpload() {
       const refDate = new Date(`${reportDate}T00:00:00Z`);
       const processedList = [];
 
+      // Payments are counted "since the last report", so find that date first.
+      let prevDate = null;
+      try {
+        const pr = await fetch(`/api/prepaid-recovery/previous-date?reportDate=${reportDate}`);
+        const pd = await pr.json();
+        if (pr.ok && pd.previousDate) prevDate = new Date(`${String(pd.previousDate).slice(0, 10)}T00:00:00Z`);
+      } catch (e) { /* fall back to the one-day window */ }
+
       for (let i = 0; i < files.length; i += 1) {
         const file = files[i];
         setStatus(`Reading ${file.name} (${i + 1}/${files.length})…`);
@@ -77,13 +85,13 @@ export default function PrepaidRecoveryUpload() {
         const rawRows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
         setStatus(`Classifying ${file.name} (${rawRows.length.toLocaleString('en-IN')} rows)…`);
         await sleep(0);
-        processedList.push(processSheet(rawRows, refDate, settings));
+        processedList.push(processSheet(rawRows, refDate, settings, prevDate));
       }
 
       setStatus('Combining ESDs and summarizing…');
       await sleep(0);
       const merged = mergeProcessed(processedList);
-      const { rows: summaryRows } = summarize(merged, refDate);
+      const { rows: summaryRows } = summarize(merged, refDate, prevDate);
 
       setStatus('Saving to the database…');
       const saved = {};
@@ -92,6 +100,7 @@ export default function PrepaidRecoveryUpload() {
         const callListRows = merged.callListRows.filter((r) => r.esdCode === code);
         const paymentsRows = merged.paymentsRows.filter((r) => r.esdCode === code);
         const excludedRows = merged.excludedRows.filter((r) => r.esdCode === code);
+        const { analysis, ...summaryOnly } = summaryRow;
         const res = await fetch('/api/prepaid-recovery/upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -99,7 +108,8 @@ export default function PrepaidRecoveryUpload() {
             reportDate,
             esdCode: code,
             esdLabel: summaryRow.esdLabel,
-            summary: summaryRow,
+            summary: summaryOnly,
+            analysis,
             callListRows,
             paymentsRows,
             excludedRows,
@@ -124,7 +134,7 @@ export default function PrepaidRecoveryUpload() {
 
       setResults(saved);
       setRecentDates((d) => [reportDate, ...d.filter((x) => x !== reportDate)]);
-      setStatus(`Done. ${Object.keys(saved).length} ESD(s) saved for ${reportDate}.`);
+      setStatus(`Done. ${Object.keys(saved).length} ESD(s) saved for ${reportDate}. Payments counted since ${prevDate ? prevDate.toISOString().slice(0, 10) : 'the previous day'}.`);
     } catch (err) {
       console.error(err);
       setStatus(`Error: ${err.message || 'Something went wrong while processing the files.'}`);

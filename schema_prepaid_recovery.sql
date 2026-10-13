@@ -192,3 +192,39 @@ alter table prepaid_recovery_remarks enable row level security;
 -- is NOT enforced at the database level here, because this app has no
 -- login/role system yet in any other module — see the "could not verify"
 -- note in the delivery message.
+
+-- ---------------------------------------------------------------------------
+-- "Prepaid Reports" update: paid-since-last-report window, excluded payers,
+-- consumer-wise analysis. Everything below is safe to re-run.
+-- ---------------------------------------------------------------------------
+alter table if exists prepaid_recovery_summary
+  add column if not exists paid_since_count integer not null default 0,
+  add column if not exists paid_since_amount numeric not null default 0,
+  add column if not exists paid_from_date date;
+
+alter table if exists prepaid_recovery_payments
+  add column if not exists paid_date date;
+
+alter table if exists prepaid_recovery_excluded
+  add column if not exists last_payment_date date,
+  add column if not exists last_payment_amount numeric,
+  add column if not exists paid_since_last boolean not null default false;
+
+alter table if exists prepaid_recovery_good_standing
+  add column if not exists last_payment_amount numeric;
+
+-- Aggregates over EVERY consumer in the billing files (category-wise,
+-- connection-status-wise, normal/government-wise, arrear and balance bands),
+-- one small JSON row per (report_date, esd_code). Only the two most recent
+-- report dates are kept, like the other date-keyed tables.
+create table if not exists prepaid_recovery_analysis (
+  report_date date not null,
+  esd_code text not null,
+  analysis jsonb not null,
+  uploaded_at timestamptz not null default now(),
+  primary key (report_date, esd_code)
+);
+alter table prepaid_recovery_analysis enable row level security;
+
+-- Make PostgREST pick up new tables/columns immediately.
+notify pgrst, 'reload schema';

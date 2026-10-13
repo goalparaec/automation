@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ANALYSIS_COLUMNS, ANALYSIS_TABLES, analysisTableRows, analysisCrossRows, mergedAnalysis, trendRows,
   summarizePaymentsRows, summarizeExcludedRows, bandLabel, reasonLabel, fmtDate,
@@ -826,86 +826,6 @@ function AnalysisTab({ reportDate, previousDate, analysis, prevAnalysis, summary
 }
 
 // ---------------------------------------------------------------------------
-// Good standing (search only: the list is ~260,000 consumers)
-// ---------------------------------------------------------------------------
-function GoodStandingTab({ reportDate, esdMap }) {
-  const [esdFilter, setEsdFilter] = useState('');
-  const [q, setQ] = useState('');
-  const [debouncedQ, setDebouncedQ] = useState('');
-  const [rows, setRows] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const reqIdRef = useRef(0);
-  const PAGE_SIZE = 300;
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedQ(q.trim()), 350);
-    return () => clearTimeout(t);
-  }, [q]);
-  useEffect(() => { setOffset(0); }, [esdFilter, debouncedQ, reportDate]);
-
-  useEffect(() => {
-    const myReqId = ++reqIdRef.current;
-    setLoading(true);
-    setError('');
-    const params = new URLSearchParams({ reportDate, offset: String(offset), limit: String(PAGE_SIZE) });
-    if (esdFilter) params.set('esdCode', esdFilter);
-    if (debouncedQ) params.set('q', debouncedQ);
-    fetch(`/api/prepaid-recovery/good-standing/search?${params.toString()}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (reqIdRef.current !== myReqId) return;
-        if (d.error) { setError(d.error); setRows([]); setTotal(0); return; }
-        setRows((prev) => (offset === 0 ? d.rows : [...prev, ...d.rows]));
-        setTotal(d.total ?? 0);
-      })
-      .catch((err) => { if (reqIdRef.current === myReqId) setError(err.message || 'Search failed.'); })
-      .finally(() => { if (reqIdRef.current === myReqId) setLoading(false); });
-  }, [reportDate, esdFilter, debouncedQ, offset]);
-
-  return (
-    <div>
-      <p className="pr-note">
-        Consumers in scope who are not defaulters: balance above the threshold, or recharged within the grace
-        period. With the Call List and Excluded tabs, every consumer in the billing files can be found. The list
-        is too large to browse, so search; the Excel download is one ESD at a time.
-      </p>
-      <div className="no-print field-row" style={{ marginBottom: 10 }}>
-        <EsdSelect esdMap={esdMap} value={esdFilter} onChange={setEsdFilter} />
-        <input type="text" placeholder="Search name / consumer no" value={q}
-          onChange={(e) => setQ(e.target.value)} style={{ minWidth: 260 }} />
-        {esdFilter && (
-          <ExcelButton href={`/api/prepaid-recovery/export/goodstanding/${reportDate}?esdCode=${esdFilter}`}>
-            Download Excel ({esdName(esdMap, esdFilter)})
-          </ExcelButton>
-        )}
-      </div>
-      {error && <div className="status error" style={{ marginBottom: 10 }}>{error}</div>}
-      <p className="pr-note">{loading && offset === 0 ? 'Searching…' : `${int(total)} consumer(s) match.`}</p>
-      <DataTable
-        columns={[
-          { header: 'ESD', render: (r) => esdName(esdMap, r.esd_code) },
-          { header: 'Consumer No', render: (r) => r.consumer_no },
-          { header: 'Name', render: (r) => r.consumer_name, left: true },
-          { header: 'Category', render: (r) => r.category_name },
-          { header: 'Balance (Rs)', render: (r) => money(r.balance), num: true },
-          { header: 'Last Payment', render: (r) => fmtDate(r.last_payment_date) || 'No record', num: true },
-          { header: 'Why not on call list', render: (r) => r.skip_reason, left: true },
-        ]}
-        rows={rows}
-      />
-      {rows.length < total && (
-        <button className="btn secondary no-print" disabled={loading} onClick={() => setOffset((o) => o + PAGE_SIZE)}>
-          {loading ? 'Loading…' : `Show more (${int(total - rows.length)} remaining)`}
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 const TABS = [
@@ -916,7 +836,6 @@ const TABS = [
   ['excluded', 'Excluded'],
   ['allotments', 'Allotments'],
   ['analysis', 'Analysis'],
-  ['goodstanding', 'Good Standing'],
 ];
 
 export default function PrepaidRecoveryView({
@@ -954,7 +873,6 @@ export default function PrepaidRecoveryView({
             summaryRows={summaryRows} prevSummaryRows={prevSummaryRows} esdMap={esdMap}
           />
         )}
-        {tab === 'goodstanding' && <GoodStandingTab reportDate={reportDate} esdMap={esdMap} />}
       </div>
     </div>
   );

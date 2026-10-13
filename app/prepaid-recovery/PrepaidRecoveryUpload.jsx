@@ -17,26 +17,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const GOOD_STANDING_CHUNK_SIZE = 2000;
-
-async function uploadGoodStandingChunks(reportDate, esdCode, rows, onProgress) {
-  if (rows.length === 0) return;
-  for (let i = 0; i < rows.length; i += GOOD_STANDING_CHUNK_SIZE) {
-    const chunkIndex = i / GOOD_STANDING_CHUNK_SIZE;
-    const chunkRows = rows.slice(i, i + GOOD_STANDING_CHUNK_SIZE);
-    onProgress(i + chunkRows.length, rows.length);
-    const res = await fetch('/api/prepaid-recovery/upload-good-standing', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reportDate, esdCode, rows: chunkRows, chunkIndex }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || res.statusText);
-    }
-  }
-}
-
 export default function PrepaidRecoveryUpload() {
   const [reportDate, setReportDate] = useState(todayISO());
   const [files, setFiles] = useState([]);
@@ -120,16 +100,6 @@ export default function PrepaidRecoveryUpload() {
           throw new Error(`${summaryRow.esdLabel}: ${err.error || res.statusText}`);
         }
         saved[code] = { label: summaryRow.esdLabel, summaryRow };
-
-        const goodStandingRows = merged.goodStandingRows.filter((r) => r.esdCode === code);
-        if (goodStandingRows.length > 0) {
-          await uploadGoodStandingChunks(reportDate, code, goodStandingRows, (done, total) => {
-            setStatus(
-              `Saving good-standing records for ${summaryRow.esdLabel}: `
-              + `${done.toLocaleString('en-IN')}/${total.toLocaleString('en-IN')}…`,
-            );
-          });
-        }
       }
 
       setResults(saved);

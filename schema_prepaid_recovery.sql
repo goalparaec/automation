@@ -115,28 +115,6 @@ create table if not exists prepaid_recovery_excluded (
 create index if not exists idx_excluded_date_esd on prepaid_recovery_excluded (report_date, esd_code);
 create index if not exists idx_excluded_reason on prepaid_recovery_excluded (reason_category);
 
--- Every consumer who is eligible but simply isn't a defaulter right now
--- (balance above the threshold, or recharged within the grace period).
--- Together with the call list, payments and excluded tables, this makes
--- every single consumer in the uploaded files locatable somewhere. Given
--- the volume (can be 200k+ rows/day), only the two most recent report
--- dates are ever kept — see prune_prepaid_recovery_old_dates() below.
-create table if not exists prepaid_recovery_good_standing (
-  id bigint generated always as identity primary key,
-  report_date date not null,
-  esd_code text not null,
-  consumer_no text not null,
-  consumer_name text,
-  category_name text,
-  balance numeric,
-  last_payment_date date,
-  skip_reason text,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists idx_good_standing_date_esd on prepaid_recovery_good_standing (report_date, esd_code);
-create index if not exists idx_good_standing_consumer on prepaid_recovery_good_standing (consumer_no);
-
 -- Telecalling remarks, keyed by consumer so they survive the next day's
 -- upload and are shown beside the same consumer in tomorrow's call list.
 create table if not exists prepaid_recovery_remarks (
@@ -184,7 +162,6 @@ alter table prepaid_recovery_summary enable row level security;
 alter table prepaid_recovery_calllist enable row level security;
 alter table prepaid_recovery_payments enable row level security;
 alter table prepaid_recovery_excluded enable row level security;
-alter table prepaid_recovery_good_standing enable row level security;
 alter table prepaid_recovery_remarks enable row level security;
 -- No public policies: all access goes through API routes using the
 -- service_role key on the server, same as the rest of this app. Note:
@@ -210,8 +187,6 @@ alter table if exists prepaid_recovery_excluded
   add column if not exists last_payment_amount numeric,
   add column if not exists paid_since_last boolean not null default false;
 
-alter table if exists prepaid_recovery_good_standing
-  add column if not exists last_payment_amount numeric;
 
 -- Aggregates over EVERY consumer in the billing files (category-wise,
 -- connection-status-wise, normal/government-wise, arrear and balance bands),
@@ -227,4 +202,10 @@ create table if not exists prepaid_recovery_analysis (
 alter table prepaid_recovery_analysis enable row level security;
 
 -- Make PostgREST pick up new tables/columns immediately.
+notify pgrst, 'reload schema';
+
+-- Good-standing records are no longer stored (they were ~260,000 rows per day
+-- and wasted database space). Drop the table and everything old in it.
+drop table if exists prepaid_recovery_good_standing;
+
 notify pgrst, 'reload schema';

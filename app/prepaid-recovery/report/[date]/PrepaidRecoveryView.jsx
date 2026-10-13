@@ -772,8 +772,7 @@ function AnalysisTab({ reportDate, previousDate, analysis, prevAnalysis, summary
         negative prepaid balances. <b>Advance balance</b> = sum of positive balances. <b>Arrear</b> = the old
         outstanding frozen when the consumer moved to prepaid; <b>Arrear outstanding</b> is what is still unpaid
         (REM OS) and <b>Arrear recovered %</b> is the share already recovered through recharges and payments.
-        {' '}{paidWindow(reportDate, paidFrom)} <b>Normal</b> = not Government, Dept/Govt Tower or PDC. LDC is
-        listed even when no consumer has that status.
+        {' '}{paidWindow(reportDate, paidFrom)} <b>Normal</b> = not Government, Dept/Govt Tower or PDC.
       </p>
 
       <h3 className="pr-h">ESD-wise overview</h3>

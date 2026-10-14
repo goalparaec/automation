@@ -5,7 +5,7 @@ name: Fetch 360_Daily
 
 on:
   schedule:
-    - cron: '0 4 * * *'
+    - cron: '45 14 * * *'
   workflow_dispatch:
     inputs:
       from_date:

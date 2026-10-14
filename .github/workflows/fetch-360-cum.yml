@@ -5,7 +5,7 @@ name: Fetch 360_Cum
 
 on:
   schedule:
-    - cron: '5 4 * * *'
+    - cron: '52 14 * * *'
   workflow_dispatch:
     inputs:
       from_date:

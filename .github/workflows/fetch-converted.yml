@@ -4,8 +4,6 @@
 name: Fetch Converted
 
 on:
-  schedule:
-    - cron: '10 4 * * *'
   workflow_dispatch:
     inputs:
       from_date:

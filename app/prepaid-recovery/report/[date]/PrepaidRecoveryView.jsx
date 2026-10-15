@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ANALYSIS_COLUMNS, ANALYSIS_TABLES, analysisTableRows, analysisCrossRows, mergedAnalysis, trendRows,
   summarizePaymentsRows, summarizeExcludedRows, bandLabel, reasonLabel, fmtDate,
+  WIDE_BANDS, NEG_SIZE_BANDS, widePresent, wideSummaryRows, wideCategoryMatrix, wideGroupRows, wideNegSizeRows,
 } from '../../../../lib/prepaidRecoveryCore';
 
 // ---------------------------------------------------------------------------
@@ -194,6 +195,154 @@ function SummaryTab({ reportDate, summaryRows, esdMap }) {
           { header: 'Total (Lakhs)', render: (r) => lakhs(r.e), num: true },
         ]}
         rows={bandRows}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Summary - All Categories (everyone except Govt, PDC and GHDT consumers)
+// ---------------------------------------------------------------------------
+function WideSummaryTab({ reportDate, analysis, summaryRows, esdMap }) {
+  const [scope, setScope] = useState('');
+  const present = widePresent(analysis);
+  const main = useMemo(() => (present ? wideSummaryRows(analysis) : null), [analysis, present]);
+  const matrix = useMemo(() => (present ? wideCategoryMatrix(analysis) : null), [analysis, present]);
+  const sizes = useMemo(() => (present ? wideNegSizeRows(analysis) : null), [analysis, present]);
+  const byCat = useMemo(() => (present ? wideGroupRows(analysis, 'category', scope ? [scope] : null) : null), [analysis, present, scope]);
+  const byConn = useMemo(() => (present ? wideGroupRows(analysis, 'connection', scope ? [scope] : null) : null), [analysis, present, scope]);
+  const paidFrom = (summaryRows[0] || {}).paid_from_date;
+
+  if (!present) {
+    return (
+      <p className="pr-note">
+        The All Categories summary is not stored for this report date. Upload the billing files again for this date
+        to generate it (reports uploaded before this feature was added do not have it).
+      </p>
+    );
+  }
+
+  const all = 'Goalpara Circle Total';
+  const scopeName = scope ? esdName(esdMap, scope) : 'All ESDs (Goalpara Circle)';
+  const sumRows = [
+    ...main.rows.map((r) => ({ ...r, esd: esdName(esdMap, r.code) })),
+    { _total: true, ...main.total, esd: all },
+  ];
+  const bandCols = (get, fmt) => WIDE_BANDS.map((b) => ({ header: bandLabel(b), render: (r) => fmt(get(r, b)), num: true }));
+  const groupCols = (keyHeader) => [
+    { header: keyHeader, render: (r) => r.key, left: true },
+    { header: 'Consumers', render: (r) => int(r.n), num: true },
+    ...bandCols((r, b) => r.band[b].n, int),
+    { header: 'Not recharged total (consumers)', render: (r) => int(r.ageN), num: true },
+    ...WIDE_BANDS.map((b) => ({ header: `${bandLabel(b)} (Lakhs)`, render: (r) => lakhs(r.band[b].amt), num: true })),
+    { header: 'Not recharged total (Lakhs)', render: (r) => lakhs(r.ageAmt), num: true },
+    { header: 'Recharged in last 3 months (consumers)', render: (r) => int(r.recent.n), num: true },
+    { header: 'Total negative balance Rs 500+ (consumers)', render: (r) => int(r.neg500.n), num: true },
+    { header: 'Total negative balance Rs 500+ (Lakhs)', render: (r) => lakhs(r.neg500.amt), num: true },
+    { header: 'Average negative balance (Rs)', render: (r) => money(r.avgNeg), num: true },
+  ];
+
+  const matrixBlock = (title, field, fmt) => {
+    const cellOf = (r, c) => r.cells[c][field];
+    return (
+      <>
+        <h3 className="pr-h">{title}</h3>
+        <DataTable
+          columns={[
+            { header: 'ESD', render: (r) => r.esd, left: true },
+            ...matrix.cats.map((c) => ({ header: c, render: (r) => fmt(cellOf(r, c)), num: true })),
+            { header: 'Total', render: (r) => fmt(r.total[field]), num: true },
+          ]}
+          rows={[
+            ...matrix.rows.map((r) => ({ ...r, esd: esdName(esdMap, r.code) })),
+            { _total: true, ...matrix.totalRow, esd: all },
+          ]}
+        />
+      </>
+    );
+  };
+  const sizeBlock = (title, field, fmt) => (
+    <>
+      <h3 className="pr-h">{title}</h3>
+      <DataTable
+        columns={[
+          { header: 'ESD', render: (r) => r.esd, left: true },
+          ...NEG_SIZE_BANDS.map((k) => ({ header: `Rs ${k}`, render: (r) => fmt(r.sizes[k][field]), num: true })),
+          { header: 'Total', render: (r) => fmt(r.total[field]), num: true },
+        ]}
+        rows={[
+          ...sizes.rows.map((r) => ({ ...r, esd: esdName(esdMap, r.code) })),
+          { _total: true, ...sizes.totalRow, esd: all },
+        ]}
+      />
+    </>
+  );
+
+  return (
+    <div>
+      <div className="no-print" style={{ marginBottom: 10 }}>
+        <ExcelButton href={`/api/prepaid-recovery/export/widesummary/${reportDate}`}>Download Excel (all tables)</ExcelButton>
+      </div>
+      <p className="pr-note">
+        Same age-wise summary as the Summary tab, but for <b>all categories</b>: only Government, PDC and GHDT
+        consumers are left out. Tower/department, name-keyword and no-phone consumers are counted. The Summary tab
+        is unchanged. <b>Total negative balance Rs 500+</b> = every counted consumer whose balance is -500 or lower
+        (including those who recharged in the last 3 months). {paidWindow(reportDate, paidFrom)} All negative balances are in Lakhs.
+      </p>
+      <DataTable
+        columns={[
+          { header: 'ESD', render: (r) => r.esd, left: true },
+          ...bandCols((r, b) => r.band[b].n, int),
+          { header: 'Not recharged total (consumers)', render: (r) => int(r.ageN), num: true },
+          { header: 'Not recharged total - negative balance (Lakhs)', render: (r) => lakhs(r.ageAmt), num: true },
+          { header: 'Recharged in last 3 months (consumers)', render: (r) => int(r.recent.n), num: true },
+          { header: 'Total negative balance Rs 500 and above (consumers)', render: (r) => int(r.neg500.n), num: true },
+          { header: 'Total negative balance Rs 500 and above (Lakhs)', render: (r) => lakhs(r.neg500.amt), num: true },
+          { header: 'No Phone numbers (included here)', render: (r) => int(r.noPhone.n), num: true },
+          { header: 'Paid since last report (consumers)', render: (r) => int(r.paid.n), num: true },
+          { header: 'Paid since last report (Rs)', render: (r) => money(r.paid.amt), num: true },
+        ]}
+        rows={sumRows}
+      />
+
+      <h3 className="pr-h">Negative balance by band (Lakhs)</h3>
+      <DataTable
+        columns={[
+          { header: 'ESD', render: (r) => r.esd, left: true },
+          ...bandCols((r, b) => r.band[b].amt, lakhs),
+          { header: 'Not recharged total (Lakhs)', render: (r) => lakhs(r.ageAmt), num: true },
+          { header: 'Recharged in last 3 months (Lakhs)', render: (r) => lakhs(r.recent.amt), num: true },
+          { header: 'Total negative balance Rs 500 and above (Lakhs)', render: (r) => lakhs(r.neg500.amt), num: true },
+        ]}
+        rows={sumRows}
+      />
+
+      {matrixBlock('ESD x Category: negative balance Rs 500 and above (Lakhs)', 'amt', lakhs)}
+      {matrixBlock('ESD x Category: consumers with negative balance Rs 500 and above', 'n', int)}
+
+      <h3 className="pr-h" style={{ fontSize: 17, borderTop: '2px solid #1f3b5c', paddingTop: 14 }}>
+        Detailed analysis: {scopeName}
+      </h3>
+      <div className="no-print field-row" style={{ marginBottom: 10 }}>
+        <EsdSelect esdMap={esdMap} value={scope} onChange={setScope} all="All ESDs (Goalpara Circle)" />
+      </div>
+      <h3 className="pr-h">Category-wise age analysis</h3>
+      <DataTable columns={groupCols('Category')} rows={[...byCat.rows, { _total: true, ...byCat.total }]} />
+      <h3 className="pr-h">Connection status-wise age analysis (Running / TDC)</h3>
+      <DataTable columns={groupCols('Connection status')} rows={[...byConn.rows, { _total: true, ...byConn.total }]} />
+
+      {sizeBlock('Size of negative balance Rs 500 and above (Lakhs)', 'amt', lakhs)}
+      {sizeBlock('Size of negative balance Rs 500 and above (consumers)', 'n', int)}
+
+      <h3 className="pr-h">Consumers covered</h3>
+      <DataTable
+        columns={[
+          { header: 'ESD', render: (r) => r.esd, left: true },
+          { header: 'Consumers in billing file', render: (r) => int(r.filesN), num: true },
+          { header: 'Left out (Govt / PDC / GHDT)', render: (r) => int(r.filesN - r.n), num: true },
+          { header: 'Counted in this summary', render: (r) => int(r.n), num: true },
+        ]}
+        rows={sumRows}
       />
     </div>
   );
@@ -829,6 +978,7 @@ function AnalysisTab({ reportDate, previousDate, analysis, prevAnalysis, summary
 // ---------------------------------------------------------------------------
 const TABS = [
   ['summary', 'Summary'],
+  ['allcat', 'Summary - All Categories'],
   ['payments', 'Payments'],
   ['calllist', 'Call List'],
   ['stillunpaid', 'Still Unpaid'],
@@ -859,6 +1009,7 @@ export default function PrepaidRecoveryView({
 
       <div className="card">
         {tab === 'summary' && <SummaryTab reportDate={reportDate} summaryRows={summaryRows} esdMap={esdMap} />}
+        {tab === 'allcat' && <WideSummaryTab reportDate={reportDate} analysis={analysis} summaryRows={summaryRows} esdMap={esdMap} />}
         {tab === 'payments' && <PaymentsTab reportDate={reportDate} paymentsRows={paymentsRows} summaryRows={summaryRows} esdMap={esdMap} />}
         {tab === 'calllist' && <CallListTab reportDate={reportDate} callListRows={callListRows} esdMap={esdMap} />}
         {tab === 'stillunpaid' && (

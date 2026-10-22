@@ -81,24 +81,42 @@ export default function PrepaidRecoveryUpload() {
         const paymentsRows = merged.paymentsRows.filter((r) => r.esdCode === code);
         const excludedRows = merged.excludedRows.filter((r) => r.esdCode === code);
         const { analysis, ...summaryOnly } = summaryRow;
-        const res = await fetch('/api/prepaid-recovery/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            reportDate,
-            esdCode: code,
-            esdLabel: summaryRow.esdLabel,
-            summary: summaryOnly,
-            analysis,
-            callListRows,
-            paymentsRows,
-            excludedRows,
-          }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(`${summaryRow.esdLabel}: ${err.error || res.statusText}`);
-        }
+        const label = summaryRow.esdLabel;
+
+        // Sends one JSON request; shows a readable error even when the server
+        // (e.g. Vercel's size limit) replies with something that isn't JSON.
+        const post = async (payload) => {
+          const res = await fetch('/api/prepaid-recovery/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reportDate, esdCode: code, ...payload }),
+          });
+          if (!res.ok) {
+            const text = await res.text().catch(() => '');
+            let msg = '';
+            try { msg = JSON.parse(text).error; } catch { /* not JSON */ }
+            throw new Error(`${label}: ${msg || text.slice(0, 120) || `HTTP ${res.status}`}`);
+          }
+        };
+
+        // Same ordering the server used: largest negative balance first.
+        const sortedCalls = [...callListRows].sort(
+          (x, y) => (x.balance ?? 0) - (y.balance ?? 0) || String(x.consumerNo).localeCompare(String(y.consumerNo)),
+        );
+
+        setStatus(`Saving ${label} (summary)…`);
+        await post({ part: 'start', esdLabel: label, summary: summaryOnly, analysis });
+
+        const BATCH = 4000; // keeps each request well under Vercel's 4.5 MB limit
+        const sendRows = async (kind, list, name) => {
+          for (let off = 0; off < list.length; off += BATCH) {
+            setStatus(`Saving ${label} ${name} (${Math.min(off + BATCH, list.length).toLocaleString('en-IN')}/${list.length.toLocaleString('en-IN')})…`);
+            await post({ part: 'rows', kind, rows: list.slice(off, off + BATCH), serialStart: off + 1 });
+          }
+        };
+        await sendRows('calllist', sortedCalls, 'call list');
+        await sendRows('payments', paymentsRows, 'payments');
+        await sendRows('excluded', excludedRows, 'excluded');
         saved[code] = { label: summaryRow.esdLabel, summaryRow };
       }
 

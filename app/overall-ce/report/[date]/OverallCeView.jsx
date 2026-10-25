@@ -96,7 +96,6 @@ table.ce-table { border-collapse: collapse; table-layout: fixed; font-size: 13px
 .ce-table tr.ed td { font-weight: 700; background: #fff; }
 .ce-table tr.ct td { font-weight: 700; background: #FCE4D6; }
 .ce-table td.heat { font-weight: 700; }
-.ce-note { font-size: 12px; color: #4b5563; margin-top: 10px; max-width: 1100px; line-height: 1.4; }
 `;
 
 export default function OverallCeView({ report }) {
@@ -224,11 +223,6 @@ export default function OverallCeView({ report }) {
               </tbody>
             </table>
 
-            <div className="ce-note">
-              Overall CE = Grand Total Collection / Grand Total Current Demand. Manual and assessment amounts are counted
-              as fully collected. Daily collection is already part of the postpaid total. Colours compare the five
-              sub-divisions: red = lowest, yellow = middle, green = highest.
-            </div>
           </div>
         </div>
       </div>

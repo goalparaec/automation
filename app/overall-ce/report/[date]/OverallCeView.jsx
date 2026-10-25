@@ -13,6 +13,9 @@ const BANDS = [
   ['Grand Total Collection (Prepaid & Postpaid)', 1, 'green'],
   ['Overall Coll Eff. %', 1, 'green'],
 ];
+// Columns that stand alone under their own band: the band and the heading are
+// the same text, so they are merged into one cell spanning both header rows.
+const SOLO = new Set(['grand_demand', 'grand_collection', 'overall_ce']);
 const COLS = [
   ['Current Demand (Postpaid)', 'postpaid_current', 'n'],
   ['Arrear Demand (Postpaid)', 'postpaid_arrear', 'n'],
@@ -182,12 +185,18 @@ export default function OverallCeView({ report }) {
                 <tr>
                   <th rowSpan={2} className="green">Sl No</th>
                   <th rowSpan={2} className="green">Sub-Division</th>
-                  {BANDS.map(([label, span, tone]) => (
-                    <th key={label} colSpan={span} className={tone}>{label}</th>
-                  ))}
+                  {BANDS.map(([label, span, tone]) =>
+                    span === 1 ? (
+                      <th key={label} rowSpan={2} className={tone}>{label}</th>
+                    ) : (
+                      <th key={label} colSpan={span} className={tone}>{label}</th>
+                    )
+                  )}
                 </tr>
                 <tr>
-                  {COLS.map(([h, key]) => (<th key={key} className="green">{h}</th>))}
+                  {COLS.filter(([, key]) => !SOLO.has(key)).map(([h, key]) => (
+                    <th key={key} className="green">{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>

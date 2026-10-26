@@ -13,13 +13,15 @@ Builds HQ's BE / CE figures for the 5 ESDs and the circle from the **category-wi
 3. Choose the circle's **IRCA ESD-wise MRR** once (the file with ESD codes 000-042+). Its Unit Billed for ESD codes 038-042 (Dhupdhara, Dudhnoi, Goalpara, Lakhipur, Mankachar) is added to each ESD's units for Billing Efficiency. Nothing is typed by hand.
 4. Energy injection is taken from the **Monthly Inputs** page - it must be entered there for the same month.
 5. Save. Open **HQ MRR** to see the circle table, each ESD's summary and the category-wise table.
-   **Download Excel** gives: Circle Summary, one sheet per ESD (summary + category-wise), Category - Circle,
+   **Download Excel** gives: Circle Summary, ESD Summary, Category - Circle, one category-wise sheet per ESD (each with a Short twin),
    and "MRR (HQ format)" (all 5 ESDs in HQ's ESD MRR layout, energy in MU and money in Rs lakhs).
 
-## Short versions and printing
-- Every report has a **short** version beside the full one: Circle Summary (Short), one "<ESD> (Short)" sheet per ESD, and Category - Circle (Short). On the page, use **Show short version**.
-- Which columns the short versions leave out is listed in `lib/hqMrrTrim.js` (two lists; edit them to change it).
-- Every sheet is set to **landscape, one page wide**, with the heading rows repeating on each page and page numbers in the footer. Full sheets are set for A3 paper, short sheets for A4. Each ESD sheet starts its category-wise table on a new page.
+## Short versions, printing and images
+- Every report has a **short** version beside the full one. On the page use **Show short version**; in the Excel each full sheet has a "(Short)" twin.
+- The columns the short versions leave out are two lists in `lib/hqMrrTrim.js`. Short category tables also leave out categories that have nothing in them.
+- Wide tables are cut into several narrower tables stacked one below the other, with the ESDs and the Circle total as rows (Circle Summary, category-wise tables). The same layout is used on the page and in the Excel.
+- "ESD Summary" lists the fields down the page with one column per ESD and the circle; it prints in portrait. All other summary sheets print landscape. Everything is A4; the zoom is set per sheet so the print stays readable, and heading rows repeat on every page.
+- **Download image** (on the page) saves the table or tables above it as a PNG.
 
 ## Safety checks on upload
 - Nothing is saved unless every chosen file can be read.
@@ -41,6 +43,6 @@ Builds HQ's BE / CE figures for the 5 ESDs and the circle from the **category-wi
 ## Files
 - schema_hq_mrr.sql
 - lib/hqMrrCore.js, hqMrrColumns.js, hqMrrTrim.js, hqMrrDb.js, hqMrrExcelExport.js, hqMrrCore.test.mjs
-- app/hq-mrr/page.js, HqTables.jsx, upload/page.js, upload/HqMrrUpload.jsx
+- app/hq-mrr/page.js, HqTables.jsx, DownloadImageButton.jsx, upload/page.js, upload/HqMrrUpload.jsx
 - app/api/hq-mrr/upload/route.js, app/api/hq-mrr/excel/route.js
 - app/layout.js (adds the "HQ MRR" menu link)

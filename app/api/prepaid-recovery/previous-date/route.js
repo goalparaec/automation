@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getPreviousReportDate } from '../../../../lib/prepaidRecoveryDb';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 // The browser asks this before processing an upload: payments are counted
 // "since the last report", so it needs to know which date that was.

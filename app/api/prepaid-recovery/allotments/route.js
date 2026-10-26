@@ -3,6 +3,8 @@ import { createAllotment, deleteAllotment, evaluateAllotments } from '../../../.
 import { allotmentStats } from '../../../../lib/prepaidRecoveryCore';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 

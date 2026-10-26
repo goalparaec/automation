@@ -129,6 +129,30 @@ export default function OverallCeView({ report }) {
     return h;
   }, [rows]);
 
+  // The Excel is built from the very report shown on this page, so it always matches the image.
+  async function downloadExcel() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/overall-ce/report/${report.reportDate}/excel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(report),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not build the Excel file.');
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Overall_CE_${report.reportDate.split('-').reverse().join('.')}.xlsx`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function downloadImage() {
     if (!ref.current) return;
     setBusy(true);
@@ -168,7 +192,7 @@ export default function OverallCeView({ report }) {
           <button className="btn secondary" onClick={downloadImage} disabled={busy}>
             {busy ? 'Rendering...' : 'Download image'}
           </button>
-          <a className="btn secondary" href={`/api/overall-ce/report/${report.reportDate}/excel`}>Download Excel</a>
+          <button className="btn secondary" onClick={downloadExcel} disabled={busy}>Download Excel</button>
           <a className="btn secondary" href="/overall-ce">Upload</a>
         </div>
         {err && <p className="status error">{err}</p>}

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { replacePrepaidRecoveryForEsd, appendPrepaidRecoveryRows } from '../../../../lib/prepaidRecoveryDb';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 export const maxDuration = 60;
 
 // The browser has already parsed the .xls file(s) and run them through

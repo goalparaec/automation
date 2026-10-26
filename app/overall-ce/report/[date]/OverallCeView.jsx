@@ -69,6 +69,13 @@ function buildHeat(rows, key) {
   return out;
 }
 
+// The wide table is shown as two tables, one below the other: up to Grand Total
+// Current Demand, then the collection side.
+const TABLES = [
+  { bands: BANDS.slice(0, 3), cols: COLS.slice(0, 10) },
+  { bands: BANDS.slice(3), cols: COLS.slice(10) },
+];
+
 const dmy = (iso) => iso.split('-').reverse().join('-');
 function monthName(iso) {
   const [y, m] = iso.split('-').map(Number);
@@ -213,56 +220,58 @@ export default function OverallCeView({ report }) {
               </div>
             )}
 
-            <table className="ce-table">
-              <colgroup>
-                <col style={{ width: 46 }} />
-                <col style={{ width: 118 }} />
-                {COLS.map(([, key]) => (
-                  <col key={key} style={{ width: lakhs ? 108 : 118 }} />
-                ))}
-              </colgroup>
-              <thead>
-                <tr>
-                  <th rowSpan={2} className="green">Sl No</th>
-                  <th rowSpan={2} className="green">Sub-Division</th>
-                  {BANDS.map(([label, span, tone]) =>
-                    span === 1 ? (
-                      <th key={label} rowSpan={2} className={tone}>{label}</th>
-                    ) : (
-                      <th key={label} colSpan={span} className={tone}>{label}</th>
-                    )
-                  )}
-                </tr>
-                <tr>
-                  {COLS.filter(([, key]) => !SOLO.has(key)).map(([h, key]) => (
-                    <th key={key} className="green">{h}</th>
+            {TABLES.map((t, ti) => (
+              <table key={ti} className="ce-table" style={ti > 0 ? { marginTop: 22 } : undefined}>
+                <colgroup>
+                  <col style={{ width: 46 }} />
+                  <col style={{ width: 118 }} />
+                  {t.cols.map(([, key]) => (
+                    <col key={key} style={{ width: lakhs ? 108 : 118 }} />
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.name} className={r.name === 'Goalpara ED' ? 'ed' : r.name === 'Circle Total' ? 'ct' : undefined}>
-                    {r.isTotal ? (
-                      <td colSpan={2} className="c">{r.name}</td>
-                    ) : (
-                      <>
-                        <td className="c">{r.sl_no}</td>
-                        <td className="l">{r.name}</td>
-                      </>
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th rowSpan={2} className="green">Sl No</th>
+                    <th rowSpan={2} className="green">Sub-Division</th>
+                    {t.bands.map(([label, span, tone]) =>
+                      span === 1 ? (
+                        <th key={label} rowSpan={2} className={tone}>{label}</th>
+                      ) : (
+                        <th key={label} colSpan={span} className={tone}>{label}</th>
+                      )
                     )}
-                    {COLS.map(([, key, kind, isHeat]) => (
-                      <td
-                        key={key}
-                        className={isHeat ? 'heat' : undefined}
-                        style={isHeat && heat[key]?.[r.name] ? { backgroundColor: heat[key][r.name] } : undefined}
-                      >
-                        {fmt(r[key], kind, lakhs)}
-                      </td>
+                  </tr>
+                  <tr>
+                    {t.cols.filter(([, key]) => !SOLO.has(key)).map(([h, key]) => (
+                      <th key={key} className="green">{h}</th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.name} className={r.name === 'Goalpara ED' ? 'ed' : r.name === 'Circle Total' ? 'ct' : undefined}>
+                      {r.isTotal ? (
+                        <td colSpan={2} className="c">{r.name}</td>
+                      ) : (
+                        <>
+                          <td className="c">{r.sl_no}</td>
+                          <td className="l">{r.name}</td>
+                        </>
+                      )}
+                      {t.cols.map(([, key, kind, isHeat]) => (
+                        <td
+                          key={key}
+                          className={isHeat ? 'heat' : undefined}
+                          style={isHeat && heat[key]?.[r.name] ? { backgroundColor: heat[key][r.name] } : undefined}
+                        >
+                          {fmt(r[key], kind, lakhs)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ))}
 
           </div>
         </div>

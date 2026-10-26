@@ -1,9 +1,9 @@
 // Server-rendered tables for the HQ MRR page (no client JavaScript needed).
-import { groupSpans, fmtValue } from '../../lib/hqMrrColumns';
+import { groupSpans, fmtValue, packBlocks } from '../../lib/hqMrrColumns';
 
 const STRONG = { background: '#fff2cc', fontWeight: 700 };
 
-function Header({ lead, cols }) {
+function Header({ lead, cols, minW }) {
   const groups = groupSpans(cols);
   const hasGroups = groups.some((g) => g.label);
   let idx = 0;
@@ -13,11 +13,11 @@ function Header({ lead, cols }) {
     return g.label ? (
       <th key={gi} colSpan={g.span} style={{ textAlign: 'center' }}>{g.label}</th>
     ) : (
-      <th key={gi} rowSpan={2} style={{ textAlign: 'center', minWidth: 90 }}>{cols[first].label}</th>
+      <th key={gi} rowSpan={2} style={{ textAlign: 'center', minWidth: minW }}>{cols[first].label}</th>
     );
   });
   const second = cols.filter((c) => c.group).map((c) => (
-    <th key={c.key + c.label + c.group} style={{ textAlign: 'center', minWidth: 90 }}>{c.label}</th>
+    <th key={c.key + c.label + c.group} style={{ textAlign: 'center', minWidth: minW }}>{c.label}</th>
   ));
   return (
     <thead>
@@ -37,22 +37,27 @@ function Cells({ cols, values }) {
 }
 
 /** rows: [{ label, values, total? }] */
-export function WideTable({ lead, cols, rows }) {
+export function WideTable({ lead, cols, rows, minW = 72 }) {
   return (
-    <div className="table-scroll">
-      <table className="report-table">
-        <Header lead={lead} cols={cols} />
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.label} className={r.total ? 'total-row' : undefined}>
-              <td style={{ whiteSpace: 'nowrap' }}>{r.label}</td>
-              <Cells cols={cols} values={r.values} />
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <table className="report-table" style={{ marginBottom: 14 }}>
+      <Header lead={lead} cols={cols} minW={minW} />
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.label} className={r.total ? 'total-row' : undefined}>
+            <td style={{ whiteSpace: 'nowrap' }}>{r.label}</td>
+            <Cells cols={cols} values={r.values} />
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
+}
+
+/** A wide table cut into narrower ones, one below the other, so it stays readable on screen, in print and as an image. */
+export function StackedTables({ lead, cols, sections, max, rows }) {
+  return packBlocks(cols, sections, max).map((block, i) => (
+    <WideTable key={i} lead={lead} cols={block} rows={rows} />
+  ));
 }
 
 /** One ESD's figures, one under the other. */
@@ -60,7 +65,7 @@ export function SummaryList({ cols, values }) {
   const seen = new Set();
   const rows = [];
   for (const c of cols) {
-    const label = c.group ? `${c.group} - ${c.label}` : c.label;
+    const label = c.group ? `${c.group.replace(' (Rs lakhs)', '')} - ${c.label}` : c.label;
     if (seen.has(label)) continue;
     seen.add(label);
     rows.push({ label, c });

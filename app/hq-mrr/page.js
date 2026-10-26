@@ -1,8 +1,9 @@
 import { loadReportInputs, listMrrMonths } from '../../lib/hqMrrDb';
 import { buildHqMrrReport, monthName, ESDS } from '../../lib/hqMrrCore';
-import { SUMMARY_COLS, CATEGORY_COLS, fmtValue } from '../../lib/hqMrrColumns';
-import { trimSummaryCols, trimCategoryCols } from '../../lib/hqMrrTrim';
-import { WideTable, SummaryList } from './HqTables';
+import { SUMMARY_COLS, CATEGORY_COLS, SUMMARY_SECTIONS, CATEGORY_SECTIONS, fmtValue } from '../../lib/hqMrrColumns';
+import { trimSummaryCols, trimCategoryCols, keepNonEmpty } from '../../lib/hqMrrTrim';
+import { StackedTables, SummaryList } from './HqTables';
+import DownloadImageButton from './DownloadImageButton';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -14,6 +15,8 @@ const KPI = [
   ['atc_loss', 'AT&C losses', 'pct'],
   ['required_100', 'Required for 100% CE (Rs lakhs)', 'lakh'],
 ];
+
+const IMG_BOX = { background: '#ffffff', padding: 12 };
 
 export default async function HqMrrPage({ searchParams }) {
   let months = [];
@@ -42,15 +45,20 @@ export default async function HqMrrPage({ searchParams }) {
   const link = (m, v) => `/hq-mrr?month=${m}&view=${v}${short ? '&short=1' : ''}`;
   const flip = (m, v) => `/hq-mrr?month=${m}&view=${v}${short ? '' : '&short=1'}`;
   const esd = report?.esds.find((e) => e.name === view);
+  const tag = report ? `${report.monthLabel.replace(' ', '_')}${short ? '_Short' : ''}` : '';
+
+  // the category table of whoever is on screen
+  const owner = view === 'circle' ? report?.circle : esd;
+  const catRows = owner?.categories
+    ? (short ? keepNonEmpty(owner.categories.rows) : owner.categories.rows).map((r) => ({ label: `${owner.categories.rows.indexOf(r) + 1}. ${r.name}`, values: r }))
+    : [];
+  if (owner?.categories) catRows.push({ label: 'TOTAL', values: owner.categories.total, total: true });
+  const ownerName = view === 'circle' ? 'Goalpara Circle' : `${view} ESD`;
 
   return (
     <>
       <div className="card">
         <h1>HQ MRR - BE / CE</h1>
-        <p style={{ color: '#6b7280', fontSize: 13 }}>
-          Built from the category-wise commercial MRR of each ESD, the same way HQ prepares its circle report.
-          Energy injection comes from the Monthly Inputs page.
-        </p>
         <div className="field-row">
           <a className="btn" href={`/hq-mrr/upload${month ? `?month=${month.slice(0, 7)}` : ''}`}>Upload MRR files</a>
           {report?.circle && <a className="btn secondary" href={`/api/hq-mrr/excel?month=${month}`}>Download Excel</a>}
@@ -73,7 +81,7 @@ export default async function HqMrrPage({ searchParams }) {
         )}
         {report && !report.ircaLoaded && (
           <p className="status error">
-            The IRCA MRR is not uploaded for {monthName(month)} - Billing efficiency below does not include IRCA units until it is.{' '}
+            The IRCA MRR is not uploaded for {monthName(month)} - Billing efficiency does not include IRCA units until it is.{' '}
             <a href={`/hq-mrr/upload?month=${month.slice(0, 7)}`}>Upload it</a>.
           </p>
         )}
@@ -98,27 +106,31 @@ export default async function HqMrrPage({ searchParams }) {
               </a>
             </div>
 
+            {view !== 'circle' && !esd?.present && <p>No MRR file has been uploaded for {view} in {report.monthLabel}.</p>}
+
             {view === 'circle' && (
               <>
-                <div className="report-title">Goalpara Electrical Circle - {report.monthLabel}</div>
-                <WideTable
-                  lead={['ESD']}
-                  cols={sCols}
-                  rows={[
-                    ...report.esds.filter((e) => e.present).map((e) => ({ label: e.name, values: e.summary })),
-                    { label: 'Goalpara Circle', values: report.circle.summary, total: true },
-                  ]}
-                />
-                <p style={{ color: '#6b7280', fontSize: 12 }}>
-                  Amounts in Rs lakhs, energy in MU. Required for 100% CE = Current demand - Grand total collection (negative = already above 100%).
-                </p>
+                <div className="field-row">
+                  <DownloadImageButton targetId="img-summary" fileName={`HQ_MRR_Circle_Summary_${tag}.png`} />
+                </div>
+                <div id="img-summary" style={IMG_BOX}>
+                  <div className="report-title">Goalpara Electrical Circle - MRR Summary{short ? ' (Short)' : ''} - {report.monthLabel}</div>
+                  <StackedTables
+                    lead={['ESD']}
+                    cols={sCols}
+                    sections={SUMMARY_SECTIONS}
+                    max={11}
+                    rows={[
+                      ...report.esds.filter((e) => e.present).map((e) => ({ label: e.name, values: e.summary })),
+                      { label: 'Goalpara Circle', values: report.circle.summary, total: true },
+                    ]}
+                  />
+                </div>
               </>
             )}
 
-            {view !== 'circle' && !esd?.present && <p>No MRR file has been uploaded for {view} in {report.monthLabel}.</p>}
             {esd?.present && (
               <>
-                <div className="report-title">{esd.name} ESD - {report.monthLabel}</div>
                 <div className="field-row">
                   {KPI.map(([k, label, f]) => (
                     <div key={k} className="card" style={{ margin: 0, padding: 12, minWidth: 150 }}>
@@ -127,27 +139,28 @@ export default async function HqMrrPage({ searchParams }) {
                     </div>
                   ))}
                 </div>
-                <h2>Summary</h2>
-                <SummaryList cols={sCols} values={esd.summary} />
+                <div className="field-row">
+                  <DownloadImageButton targetId="img-summary" fileName={`HQ_MRR_${view}_Summary_${tag}.png`} />
+                </div>
+                <div id="img-summary" style={IMG_BOX}>
+                  <div className="report-title">{esd.name} ESD - Summary{short ? ' (Short)' : ''} - {report.monthLabel}</div>
+                  <SummaryList cols={sCols} values={esd.summary} />
+                </div>
               </>
             )}
           </div>
 
-          <div className="card">
-            <div className="report-title">
-              Category-wise - {view === 'circle' ? 'Goalpara Circle' : `${view} ESD`} - {report.monthLabel}
+          {(view === 'circle' || esd?.present) && (
+            <div className="card">
+              <div className="field-row">
+                <DownloadImageButton targetId="img-category" fileName={`HQ_MRR_${view === 'circle' ? 'Circle' : view}_Category_${tag}.png`} />
+              </div>
+              <div id="img-category" style={IMG_BOX}>
+                <div className="report-title">{ownerName} - Category-wise{short ? ' (Short)' : ''} - {report.monthLabel}</div>
+                <StackedTables lead={['Category']} cols={cCols} sections={CATEGORY_SECTIONS} max={10} rows={catRows} />
+              </div>
             </div>
-            {(view === 'circle' || esd?.present) && (
-              <WideTable
-                lead={['Category']}
-                cols={cCols}
-                rows={[
-                  ...(view === 'circle' ? report.circle.categories : esd.categories).rows.map((r, i) => ({ label: `${i + 1}. ${r.name}`, values: r })),
-                  { label: 'TOTAL', values: (view === 'circle' ? report.circle.categories : esd.categories).total, total: true },
-                ]}
-              />
-            )}
-          </div>
+          )}
         </>
       )}
     </>

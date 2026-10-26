@@ -1,6 +1,7 @@
 import { loadReportInputs, listMrrMonths } from '../../lib/hqMrrDb';
 import { buildHqMrrReport, monthName, ESDS } from '../../lib/hqMrrCore';
 import { SUMMARY_COLS, CATEGORY_COLS, fmtValue } from '../../lib/hqMrrColumns';
+import { trimSummaryCols, trimCategoryCols } from '../../lib/hqMrrTrim';
 import { WideTable, SummaryList } from './HqTables';
 
 export const dynamic = 'force-dynamic';
@@ -23,6 +24,9 @@ export default async function HqMrrPage({ searchParams }) {
     error = err.message;
   }
   const month = /^\d{4}-\d{2}-01$/.test(searchParams?.month || '') ? searchParams.month : months[0];
+  const short = searchParams?.short === '1';
+  const sCols = short ? trimSummaryCols() : SUMMARY_COLS;
+  const cCols = short ? trimCategoryCols() : CATEGORY_COLS;
   const view = [...ESDS, 'circle'].includes(searchParams?.view) ? searchParams.view : 'circle';
 
   let report = null;
@@ -35,7 +39,8 @@ export default async function HqMrrPage({ searchParams }) {
     }
   }
 
-  const link = (m, v) => `/hq-mrr?month=${m}&view=${v}`;
+  const link = (m, v) => `/hq-mrr?month=${m}&view=${v}${short ? '&short=1' : ''}`;
+  const flip = (m, v) => `/hq-mrr?month=${m}&view=${v}${short ? '' : '&short=1'}`;
   const esd = report?.esds.find((e) => e.name === view);
 
   return (
@@ -88,6 +93,9 @@ export default async function HqMrrPage({ searchParams }) {
               {ESDS.map((n) => (
                 <a key={n} className={view === n ? 'btn' : 'btn secondary'} href={link(month, n)}>{n}</a>
               ))}
+              <a className="btn" style={{ marginLeft: 'auto', background: '#0f766e' }} href={flip(month, view)}>
+                {short ? 'Show full version' : 'Show short version'}
+              </a>
             </div>
 
             {view === 'circle' && (
@@ -95,7 +103,7 @@ export default async function HqMrrPage({ searchParams }) {
                 <div className="report-title">Goalpara Electrical Circle - {report.monthLabel}</div>
                 <WideTable
                   lead={['ESD']}
-                  cols={SUMMARY_COLS}
+                  cols={sCols}
                   rows={[
                     ...report.esds.filter((e) => e.present).map((e) => ({ label: e.name, values: e.summary })),
                     { label: 'Goalpara Circle', values: report.circle.summary, total: true },
@@ -120,7 +128,7 @@ export default async function HqMrrPage({ searchParams }) {
                   ))}
                 </div>
                 <h2>Summary</h2>
-                <SummaryList cols={SUMMARY_COLS} values={esd.summary} />
+                <SummaryList cols={sCols} values={esd.summary} />
               </>
             )}
           </div>
@@ -132,7 +140,7 @@ export default async function HqMrrPage({ searchParams }) {
             {(view === 'circle' || esd?.present) && (
               <WideTable
                 lead={['Category']}
-                cols={CATEGORY_COLS}
+                cols={cCols}
                 rows={[
                   ...(view === 'circle' ? report.circle.categories : esd.categories).rows.map((r, i) => ({ label: `${i + 1}. ${r.name}`, values: r })),
                   { label: 'TOTAL', values: (view === 'circle' ? report.circle.categories : esd.categories).total, total: true },

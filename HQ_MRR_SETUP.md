@@ -16,6 +16,11 @@ Builds HQ's BE / CE figures for the 5 ESDs and the circle from the **category-wi
    **Download Excel** gives: Circle Summary, one sheet per ESD (summary + category-wise), Category - Circle,
    and "MRR (HQ format)" (all 5 ESDs in HQ's ESD MRR layout, energy in MU and money in Rs lakhs).
 
+## Short versions and printing
+- Every report has a **short** version beside the full one: Circle Summary (Short), one "<ESD> (Short)" sheet per ESD, and Category - Circle (Short). On the page, use **Show short version**.
+- Which columns the short versions leave out is listed in `lib/hqMrrTrim.js` (two lists; edit them to change it).
+- Every sheet is set to **landscape, one page wide**, with the heading rows repeating on each page and page numbers in the footer. Full sheets are set for A3 paper, short sheets for A4. Each ESD sheet starts its category-wise table on a new page.
+
 ## Safety checks on upload
 - Nothing is saved unless every chosen file can be read.
 - The month inside the file must equal the month you chose.
@@ -35,7 +40,7 @@ Builds HQ's BE / CE figures for the 5 ESDs and the circle from the **category-wi
 
 ## Files
 - schema_hq_mrr.sql
-- lib/hqMrrCore.js, hqMrrColumns.js, hqMrrDb.js, hqMrrExcelExport.js, hqMrrCore.test.mjs
+- lib/hqMrrCore.js, hqMrrColumns.js, hqMrrTrim.js, hqMrrDb.js, hqMrrExcelExport.js, hqMrrCore.test.mjs
 - app/hq-mrr/page.js, HqTables.jsx, upload/page.js, upload/HqMrrUpload.jsx
 - app/api/hq-mrr/upload/route.js, app/api/hq-mrr/excel/route.js
 - app/layout.js (adds the "HQ MRR" menu link)

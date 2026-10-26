@@ -19,6 +19,7 @@ export default function RootLayout({ children }) {
               <a href="/prepaid-recovery">Prepaid Reports</a>
               <a href="/overall-ce">Overall CE</a>
               <a href="/meter-cost">Meter Cost</a>
+              <a href="/hq-mrr">HQ MRR</a>
             </nav>
           </header>
           <main className="app-main">{children}</main>

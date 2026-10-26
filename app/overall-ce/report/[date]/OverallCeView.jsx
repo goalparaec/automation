@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { toPng } from 'html-to-image';
 
 // Column layout, the same as the CE_All sheet in the Excel report.
@@ -104,6 +105,21 @@ export default function OverallCeView({ report }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const ref = useRef(null);
+  const router = useRouter();
+
+  // Always show the latest stored data: re-read it when the page is opened,
+  // restored from the browser's back/forward cache, or the tab is brought back.
+  useEffect(() => {
+    router.refresh();
+    const again = () => { if (document.visibilityState === 'visible') router.refresh(); };
+    const restored = (e) => { if (e.persisted) router.refresh(); };
+    document.addEventListener('visibilitychange', again);
+    window.addEventListener('pageshow', restored);
+    return () => {
+      document.removeEventListener('visibilitychange', again);
+      window.removeEventListener('pageshow', restored);
+    };
+  }, [router]);
   const { rows, sources, missing, monthlyPresent } = report;
 
   const heat = useMemo(() => {

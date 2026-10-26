@@ -10,7 +10,7 @@ const BANDS = [
   ['Postpaid Demand and Collection', 5, 'grey'],
   ['Prepaid and Additional Demand', 4, 'grey'],
   ['Grand Total Current Demand', 1, 'green'],
-  ['Prepaid and Additional Collection', 5, 'grey'],
+  ['Prepaid and Additional Collection', 6, 'grey'],
   ['Grand Total Collection (Prepaid & Postpaid)', 1, 'green'],
   ['Overall Coll Eff. %', 1, 'green'],
 ];
@@ -30,6 +30,7 @@ const COLS = [
   ['Grand Total Current Demand', 'grand_demand', 'n'],
   ['Recharge of Smart Prepaid', 'recharge', 'n'],
   ['Credit Adjustment', 'credit_adjustment', 'n'],
+  ['Outstanding Payment Amount', 'outstanding_payment', 'n'],
   ['Manual Amount Not Reflected in ARMS', 'manual_collection', 'n'],
   ['Assessment Amount Not Reflected in ARMS', 'assessment_collection', 'n'],
   ['Collection Against Converted', 'converted_collection', 'n'],

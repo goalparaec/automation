@@ -29,7 +29,6 @@ export async function POST(request) {
   if (L.esd && !ESD_BY_CODE[b.esd_code]) return bad('Choose an ESD.');
   if (!no) return bad(`${L.noLabel} is required.`);
   if (!date) return bad('Date is required.');
-  if (!['new', 'replacement'].includes(b.kind)) return bad('Choose New connection or Replacement.');
   if (ph1 + ph3 === 0) return bad('Enter a 1-phase or 3-phase count.');
 
   try {
@@ -39,7 +38,7 @@ export async function POST(request) {
         return NextResponse.json({ conflict: true, message: `${L.noLabel} ${no} is already saved.`, existing }, { status: 409 });
       }
     }
-    const row = { [L.noCol]: no, [L.dateCol]: date, kind: b.kind, ph1, ph3, note: String(b.note ?? '').slice(0, 200) || null };
+    const row = { [L.noCol]: no, [L.dateCol]: date, ph1, ph3, note: String(b.note ?? '').slice(0, 200) || null };
     if (L.esd) row.esd_code = b.esd_code;
     if (L.link) row.req_no = String(b.req_no ?? '').trim() || null;
     return NextResponse.json({ ok: true, row: await addLedger(b.type, row) });

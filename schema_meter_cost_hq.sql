@@ -1,12 +1,11 @@
 -- Meter Cost: HQ requisition, HQ supply and issue to ESD. Safe to re-run:
--- create-if-not-exists only, never drops or changes existing data.
+-- create-if-not-exists; the only change to existing tables is removing the unused kind column.
 
 -- Requisitions the circle submits to HQ (circle level).
 create table if not exists meter_cost_hq_req (
   id bigserial primary key,
   req_no text not null,
   req_date date not null,
-  kind text not null check (kind in ('new', 'replacement')),
   ph1 integer not null default 0,
   ph3 integer not null default 0,
   note text,
@@ -21,7 +20,6 @@ create table if not exists meter_cost_hq_supply (
   ref_no text not null,
   supply_date date not null,
   req_no text,
-  kind text not null check (kind in ('new', 'replacement')),
   ph1 integer not null default 0,
   ph3 integer not null default 0,
   note text,
@@ -36,7 +34,6 @@ create table if not exists meter_cost_issue (
   esd_code text not null,
   issue_no text not null,
   issue_date date not null,
-  kind text not null check (kind in ('new', 'replacement')),
   ph1 integer not null default 0,
   ph3 integer not null default 0,
   note text,
@@ -44,5 +41,10 @@ create table if not exists meter_cost_issue (
 );
 create index if not exists meter_cost_issue_date_idx on meter_cost_issue (issue_date);
 alter table meter_cost_issue enable row level security;
+
+-- HQ requisition, HQ supply and issues carry no New / Replacement tag.
+alter table meter_cost_hq_req drop column if exists kind;
+alter table meter_cost_hq_supply drop column if exists kind;
+alter table meter_cost_issue drop column if exists kind;
 
 notify pgrst, 'reload schema';

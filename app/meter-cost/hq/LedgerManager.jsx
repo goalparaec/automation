@@ -2,13 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ESD_BY_CODE, KIND_LABEL } from '../../../lib/meterCostCore';
+import { ESD_BY_CODE } from '../../../lib/meterCostCore';
 import { LEDGERS } from '../../../lib/meterCostHq';
 
 export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers = [] }) {
   const L = LEDGERS[type];
   const router = useRouter();
-  const blank = { esd_code: '', no: '', kind: 'new', ph1: '', ph3: '', note: '', req_no: '' };
+  const blank = { esd_code: '', no: '', ph1: '', ph3: '', note: '', req_no: '' };
   const [form, setForm] = useState({ ...blank, date: today });
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(null);
@@ -28,7 +28,7 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
       if (res.status === 409) { setConflict(data); return; }
       if (!res.ok) throw new Error(data.error || 'Could not save.');
       setConflict(null);
-      setForm((f) => ({ ...blank, esd_code: f.esd_code, kind: f.kind, date: f.date }));
+      setForm((f) => ({ ...blank, esd_code: f.esd_code, date: f.date }));
       setStatus({ type: 'success', message: `${form.no} saved.` });
       router.refresh();
     } catch (err) {
@@ -74,11 +74,6 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
           )}
         </div>
         <div className="field-row">
-          <label>For</label>
-          <select value={form.kind} onChange={set('kind')}>
-            <option value="new">{KIND_LABEL.new}</option>
-            <option value="replacement">{KIND_LABEL.replacement}</option>
-          </select>
           <label>1-Phase</label>
           <input type="number" min="0" value={form.ph1} onChange={set('ph1')} style={{ width: 90 }} />
           <label>3-Phase</label>
@@ -96,13 +91,12 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
             <b>Conflict: {conflict.message}</b>
             <div className="table-scroll" style={{ marginTop: 8 }}>
               <table className="report-table">
-                <thead><tr><th>Date</th>{L.esd && <th>ESD</th>}<th>Type</th><th>1-Ph</th><th>3-Ph</th></tr></thead>
+                <thead><tr><th>Date</th>{L.esd && <th>ESD</th>}<th>1-Ph</th><th>3-Ph</th></tr></thead>
                 <tbody>
                   {conflict.existing.map((p) => (
                     <tr key={p.id}>
                       <td>{String(p[L.dateCol]).slice(0, 10)}</td>
                       {L.esd && <td style={{ textAlign: 'left' }}>{ESD_BY_CODE[p.esd_code]}</td>}
-                      <td style={{ textAlign: 'left' }}>{KIND_LABEL[p.kind]}</td>
                       <td>{p.ph1}</td><td>{p.ph3}</td>
                     </tr>
                   ))}
@@ -123,7 +117,7 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
               <thead>
                 <tr>
                   <th>Date</th>{L.esd && <th>ESD</th>}<th>{L.noLabel}</th>{L.link && <th>Requisition</th>}
-                  <th>Type</th><th>1-Ph</th><th>3-Ph</th><th>Note</th><th></th>
+                  <th>1-Ph</th><th>3-Ph</th><th>Note</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -133,7 +127,6 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
                     {L.esd && <td style={{ textAlign: 'left' }}>{ESD_BY_CODE[p.esd_code]}</td>}
                     <td style={{ textAlign: 'left' }}>{p[L.noCol]}</td>
                     {L.link && <td style={{ textAlign: 'left' }}>{p.req_no || ''}</td>}
-                    <td style={{ textAlign: 'left' }}>{KIND_LABEL[p.kind]}</td>
                     <td>{p.ph1}</td><td>{p.ph3}</td>
                     <td style={{ textAlign: 'left' }}>{p.note || ''}</td>
                     <td><button className="btn secondary" onClick={() => remove(p.id)}>Delete</button></td>

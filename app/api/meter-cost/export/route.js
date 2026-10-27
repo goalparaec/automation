@@ -19,7 +19,7 @@ export async function GET(request) {
     let lists = null;
     try {
       lists = await loadHq(fy);
-      hq = buildHqStatus({ deposits, ...lists, fyStart: fy });
+      hq = buildHqStatus({ deposits, ...lists, prs, fyStart: fy });
     } catch { hq = null; lists = null; }
     const wb = await buildMeterCostWorkbook({ summary, status, prs, hq, lists });
     return xlsxResponse(wb, `Meter_Cost_Record_FY_${summary.label}.xlsx`);

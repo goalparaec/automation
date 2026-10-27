@@ -4,41 +4,38 @@ const th = { whiteSpace: 'normal', textAlign: 'center' };
 
 export function StatusTable({ status }) {
   const rows = [...status.rows, status.total];
+  const groups = ['New connection', 'Replacement', 'Total deposited', 'PR / issued', 'Pending PR', 'Advance PR'];
+  const red = (v) => (v ? { color: '#b91c1c', fontWeight: 700 } : null);
+  const green = (v) => (v ? { color: '#15803d', fontWeight: 700 } : null);
   return (
     <div className="table-scroll">
       <table className="report-table">
         <thead>
           <tr>
             <th rowSpan={2} style={th}>ESD</th>
-            <th rowSpan={2} style={th}>Type</th>
-            <th colSpan={2} style={th}>Deposited</th>
-            <th colSpan={2} style={th}>PR raised</th>
-            <th colSpan={2} style={th}>Pending PR</th>
-            <th colSpan={2} style={th}>Advance PR</th>
+            <th colSpan={6} style={th}>Deposited</th>
+            <th colSpan={6} style={th}>Against PR (issued to ESD)</th>
           </tr>
           <tr>
-            {['1-Ph', '3-Ph', '1-Ph', '3-Ph', '1-Ph', '3-Ph', '1-Ph', '3-Ph'].map((h, i) => <th key={i} style={th}>{h}</th>)}
+            {groups.map((g) => <th key={g} colSpan={2} style={th}>{g}</th>)}
+          </tr>
+          <tr>
+            <th style={th}></th>
+            {groups.flatMap((g) => ['1-Ph', '3-Ph'].map((h) => <th key={g + h} style={th}>{h}</th>))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) =>
-            ['new', 'rep'].map((k) => {
-              const s = r[k];
-              const isTotal = r === status.total;
-              return (
-                <tr key={r.esd + k} className={isTotal ? 'total-row' : ''}>
-                  {k === 'new' && <td rowSpan={2} style={{ textAlign: 'left', verticalAlign: 'middle' }}>{r.esd}</td>}
-                  <td style={{ textAlign: 'left' }}>{k === 'new' ? 'New connection' : 'Replacement'}</td>
-                  <td>{s.dep1}</td><td>{s.dep3}</td>
-                  <td>{s.pr1}</td><td>{s.pr3}</td>
-                  <td style={s.pending1 ? { color: '#b91c1c', fontWeight: 700 } : null}>{s.pending1}</td>
-                  <td style={s.pending3 ? { color: '#b91c1c', fontWeight: 700 } : null}>{s.pending3}</td>
-                  <td style={s.advance1 ? { color: '#15803d', fontWeight: 700 } : null}>{s.advance1}</td>
-                  <td style={s.advance3 ? { color: '#15803d', fontWeight: 700 } : null}>{s.advance3}</td>
-                </tr>
-              );
-            })
-          )}
+          {rows.map((r) => (
+            <tr key={r.esd} className={r === status.total ? 'total-row' : ''}>
+              <td style={{ textAlign: 'left' }}>{r.esd}</td>
+              <td>{r.new1}</td><td>{r.new3}</td>
+              <td>{r.rep1}</td><td>{r.rep3}</td>
+              <td>{r.dep1}</td><td>{r.dep3}</td>
+              <td>{r.pr1}</td><td>{r.pr3}</td>
+              <td style={red(r.pending1)}>{r.pending1}</td><td style={red(r.pending3)}>{r.pending3}</td>
+              <td style={green(r.advance1)}>{r.advance1}</td><td style={green(r.advance3)}>{r.advance3}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

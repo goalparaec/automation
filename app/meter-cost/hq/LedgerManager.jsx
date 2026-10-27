@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ESD_BY_CODE } from '../../../lib/meterCostCore';
 import { LEDGERS } from '../../../lib/meterCostHq';
 
 export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers = [] }) {
@@ -13,6 +12,7 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(null);
   const [conflict, setConflict] = useState(null);
+  const [editId, setEditId] = useState(null);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   async function submit(force = false) {
@@ -22,20 +22,33 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
       const res = await fetch('/api/meter-cost/hq', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, type, force }),
+        body: JSON.stringify({ ...form, type, force, id: editId }),
       });
       const data = await res.json();
       if (res.status === 409) { setConflict(data); return; }
       if (!res.ok) throw new Error(data.error || 'Could not save.');
       setConflict(null);
-      setForm((f) => ({ ...blank, esd_code: f.esd_code, date: f.date }));
-      setStatus({ type: 'success', message: `${form.no} saved.` });
+      setForm((f) => ({ ...blank, date: f.date }));
+      setStatus({ type: 'success', message: `${form.no} ${editId ? 'updated' : 'saved'}.` });
+      setEditId(null);
       router.refresh();
     } catch (err) {
       setStatus({ type: 'error', message: err.message });
     } finally {
       setBusy(false);
     }
+  }
+
+  function edit(p) {
+    setEditId(p.id);
+    setConflict(null);
+    setStatus(null);
+    setForm({ no: p[L.noCol], date: String(p[L.dateCol]).slice(0, 10), ph1: String(p.ph1), ph3: String(p.ph3), note: p.note || '', req_no: p.req_no || '' });
+  }
+
+  function cancelEdit() {
+    setEditId(null);
+    setForm((f) => ({ ...blank, date: f.date }));
   }
 
   async function remove(id) {
@@ -50,15 +63,6 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
       <div className="card">
         <h2>{L.title}</h2>
         <div className="field-row">
-          {L.esd && (
-            <>
-              <label>ESD</label>
-              <select value={form.esd_code} onChange={set('esd_code')}>
-                <option value="">Choose...</option>
-                {Object.entries(ESD_BY_CODE).map(([c, n]) => <option key={c} value={c}>{n}</option>)}
-              </select>
-            </>
-          )}
           <label>{L.noLabel}</label>
           <input value={form.no} onChange={set('no')} />
           <label>Date</label>
@@ -66,10 +70,10 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
           {L.link && (
             <>
               <label>Against requisition</label>
-              <select value={form.req_no} onChange={set('req_no')}>
-                <option value="">Not linked</option>
-                {reqNumbers.map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
+              <input list="req-numbers" value={form.req_no} onChange={set('req_no')} placeholder="leave empty if not known yet" />
+              <datalist id="req-numbers">
+                {reqNumbers.map((n) => <option key={n} value={n} />)}
+              </datalist>
             </>
           )}
         </div>
@@ -82,7 +86,8 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
           <input value={form.note} onChange={set('note')} placeholder="optional" />
         </div>
         <div className="field-row">
-          <button className="btn" onClick={() => submit(false)} disabled={busy}>Add</button>
+          <button className="btn" onClick={() => submit(false)} disabled={busy}>{editId ? 'Save changes' : 'Add'}</button>
+          {editId && <button className="btn secondary" onClick={cancelEdit}>Cancel edit</button>}
         </div>
         {status && <p className={`status ${status.type === 'error' ? 'error' : 'success'}`}>{status.message}</p>}
 
@@ -91,12 +96,11 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
             <b>Conflict: {conflict.message}</b>
             <div className="table-scroll" style={{ marginTop: 8 }}>
               <table className="report-table">
-                <thead><tr><th>Date</th>{L.esd && <th>ESD</th>}<th>1-Ph</th><th>3-Ph</th></tr></thead>
+                <thead><tr><th>Date</th><th>1-Ph</th><th>3-Ph</th></tr></thead>
                 <tbody>
                   {conflict.existing.map((p) => (
                     <tr key={p.id}>
                       <td>{String(p[L.dateCol]).slice(0, 10)}</td>
-                      {L.esd && <td style={{ textAlign: 'left' }}>{ESD_BY_CODE[p.esd_code]}</td>}
                       <td>{p.ph1}</td><td>{p.ph3}</td>
                     </tr>
                   ))}
@@ -116,7 +120,7 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
             <table className="report-table">
               <thead>
                 <tr>
-                  <th>Date</th>{L.esd && <th>ESD</th>}<th>{L.noLabel}</th>{L.link && <th>Requisition</th>}
+                  <th>Date</th><th>{L.noLabel}</th>{L.link && <th>Requisition</th>}
                   <th>1-Ph</th><th>3-Ph</th><th>Note</th><th></th>
                 </tr>
               </thead>
@@ -124,12 +128,11 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
                 {rows.map((p) => (
                   <tr key={p.id}>
                     <td>{String(p[L.dateCol]).slice(0, 10)}</td>
-                    {L.esd && <td style={{ textAlign: 'left' }}>{ESD_BY_CODE[p.esd_code]}</td>}
-                    <td style={{ textAlign: 'left' }}>{p[L.noCol]}</td>
+                                        <td style={{ textAlign: 'left' }}>{p[L.noCol]}</td>
                     {L.link && <td style={{ textAlign: 'left' }}>{p.req_no || ''}</td>}
                     <td>{p.ph1}</td><td>{p.ph3}</td>
                     <td style={{ textAlign: 'left' }}>{p.note || ''}</td>
-                    <td><button className="btn secondary" onClick={() => remove(p.id)}>Delete</button></td>
+                    <td><button className="btn secondary" onClick={() => edit(p)}>Edit</button>{' '}<button className="btn secondary" onClick={() => remove(p.id)}>Delete</button></td>
                   </tr>
                 ))}
               </tbody>

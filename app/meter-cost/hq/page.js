@@ -1,9 +1,9 @@
 import LedgerManager from './LedgerManager';
-import { getDepositsForFy } from '../../../lib/meterCostDb';
+import { getDepositsForFy, listPrs } from '../../../lib/meterCostDb';
 import { loadHq } from '../../../lib/meterCostHqDb';
 import { buildHqStatus } from '../../../lib/meterCostHq';
 import { fyStartOf, fyLabel } from '../../../lib/meterCostCore';
-import { CircleHqTable, RequisitionTable, IssueTable } from '../HqTables';
+import { CircleHqTable, RequisitionTable } from '../HqTables';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -15,9 +15,9 @@ export default async function HqPage({ searchParams }) {
   let hq = null;
   let error = null;
   try {
-    const [deposits, lists] = await Promise.all([getDepositsForFy(fy), loadHq(fy)]);
+    const [deposits, lists, prs] = await Promise.all([getDepositsForFy(fy), loadHq(fy), listPrs(fy)]);
     data = lists;
-    hq = buildHqStatus({ deposits, ...lists, fyStart: fy });
+    hq = buildHqStatus({ deposits, ...lists, prs, fyStart: fy });
   } catch (err) {
     error = err.message;
   }
@@ -27,9 +27,10 @@ export default async function HqPage({ searchParams }) {
     <>
       <div className="card">
         <h1>HQ requisition, supply and issue</h1>
-        <p style={{ color: '#6b7280', fontSize: 13 }}>Financial year {label}. Every table updates as soon as an entry is added.</p>
+        <p style={{ color: '#6b7280', fontSize: 13 }}>Financial year {label}. Meters issued to ESDs are the PRs entered under Add / view PR.</p>
         <div className="field-row">
           <a className="btn secondary" href="/meter-cost">Back</a>
+          <a className="btn secondary" href="/meter-cost/pr">Add / view PR</a>
           <a className="btn secondary" href={`/api/meter-cost/export?fy=${fy}`}>Download Excel</a>
         </div>
         {error && (
@@ -47,13 +48,8 @@ export default async function HqPage({ searchParams }) {
             <h2>Each requisition</h2>
             <RequisitionTable hq={hq} />
           </div>
-          <div className="card">
-            <h2>Deposited vs issued to ESD</h2>
-            <IssueTable esd={hq.esd} />
-          </div>
           <LedgerManager type="req" rows={data.reqs} today={ist} fyLabel={label} />
           <LedgerManager type="supply" rows={data.supplies} today={ist} fyLabel={label} reqNumbers={reqNumbers} />
-          <LedgerManager type="issue" rows={data.issues} today={ist} fyLabel={label} />
         </>
       )}
     </>

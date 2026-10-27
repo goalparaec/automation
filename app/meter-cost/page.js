@@ -1,7 +1,7 @@
 import { getDepositsForFy, listPrs } from '../../lib/meterCostDb';
 import { buildDepositSummary, buildPrStatus, fyStartOf, fyLabel } from '../../lib/meterCostCore';
 import { StatusTable, MonthlyTable, QuarterlyTable } from './MeterCostTables';
-import { CircleHqTable, IssueTable } from './HqTables';
+import { CircleHqTable } from './HqTables';
 import { loadHq } from '../../lib/meterCostHqDb';
 import { buildHqStatus } from '../../lib/meterCostHq';
 
@@ -25,7 +25,7 @@ export default async function MeterCostPage({ searchParams }) {
     const [deposits, prs] = await Promise.all([getDepositsForFy(fy), listPrs(fy)]);
     summary = buildDepositSummary(deposits, fy);
     status = buildPrStatus(deposits, prs, fy);
-    try { hq = buildHqStatus({ deposits, ...(await loadHq(fy)), fyStart: fy }); } catch { hq = null; }
+    try { hq = buildHqStatus({ deposits, ...(await loadHq(fy)), prs, fyStart: fy }); } catch { hq = null; }
   } catch (err) {
     error = err.message;
   }
@@ -60,9 +60,9 @@ export default async function MeterCostPage({ searchParams }) {
       {summary && (
         <>
           <div className="card">
-            <h2>Deposits vs PR</h2>
+            <h2>Deposits vs PR (issued to ESD)</h2>
             <p style={{ color: "#6b7280", fontSize: 13 }}>
-              Pending PR = deposits received but no PR raised yet. Advance PR = PR raised ahead of deposits.
+              Pending PR = deposits received but no PR entered yet. Advance PR = PR entered ahead of deposits. A PR is also the issue to the ESD.
             </p>
             <StatusTable status={status} />
           </div>
@@ -71,10 +71,6 @@ export default async function MeterCostPage({ searchParams }) {
               <div className="card">
                 <h2>Requisition to HQ vs received</h2>
                 <CircleHqTable circle={hq.circle} />
-              </div>
-              <div className="card">
-                <h2>Deposited vs issued to ESD</h2>
-                <IssueTable esd={hq.esd} />
               </div>
             </>
           )}

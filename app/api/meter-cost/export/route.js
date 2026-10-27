@@ -4,6 +4,8 @@ export const maxDuration = 60;
 import { getDepositsForFy, listPrs } from '../../../../lib/meterCostDb.js';
 import { buildDepositSummary, buildPrStatus } from '../../../../lib/meterCostCore.js';
 import { buildMeterCostWorkbook } from '../../../../lib/meterCostExcelExport.js';
+import { loadHq } from '../../../../lib/meterCostHqDb.js';
+import { buildHqStatus } from '../../../../lib/meterCostHq.js';
 import { xlsxResponse, xlsxError } from '../../../../lib/xlsxResponse.js';
 
 export async function GET(request) {
@@ -13,7 +15,13 @@ export async function GET(request) {
     const [deposits, prs] = await Promise.all([getDepositsForFy(fy), listPrs(fy)]);
     const summary = buildDepositSummary(deposits, fy);
     const status = buildPrStatus(deposits, prs, fy);
-    const wb = await buildMeterCostWorkbook({ summary, status, prs });
+    let hq = null;
+    let lists = null;
+    try {
+      lists = await loadHq(fy);
+      hq = buildHqStatus({ deposits, ...lists, fyStart: fy });
+    } catch { hq = null; lists = null; }
+    const wb = await buildMeterCostWorkbook({ summary, status, prs, hq, lists });
     return xlsxResponse(wb, `Meter_Cost_Record_FY_${summary.label}.xlsx`);
   } catch (err) {
     return xlsxError(err);

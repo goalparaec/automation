@@ -5,7 +5,7 @@ import {
   ANALYSIS_COLUMNS, ANALYSIS_TABLES, analysisTableRows, analysisCrossRows, mergedAnalysis, trendRows,
   summarizePaymentsRows, summarizeExcludedRows, bandLabel, reasonLabel, fmtDate,
   WIDE_BANDS, NEG_SIZE_BANDS, widePresent, wideSummaryRows, wideCategoryMatrix, wideGroupRows, wideNegSizeRows,
-  NONCOMM_GROUPS, NONCOMM_LABELS, nonCommPresent, nonCommSummaryRows,
+  NONCOMM_GROUPS, NONCOMM_LABELS, nonCommPresent, nonCommSummaryRows, widePubView,
 } from '../../../../lib/prepaidRecoveryCore';
 import DownloadImageButton from '../../../hq-mrr/DownloadImageButton';
 
@@ -212,7 +212,7 @@ function SummaryTab({ reportDate, summaryRows, esdMap }) {
 // ---------------------------------------------------------------------------
 // Summary - All Categories (everyone except Govt, PDC and GHDT consumers)
 // ---------------------------------------------------------------------------
-function WideSummaryTab({ reportDate, analysis, summaryRows, esdMap }) {
+function WideSummaryTab({ reportDate, analysis, summaryRows, esdMap, excludePub = false }) {
   const [scope, setScope] = useState('');
   const present = widePresent(analysis);
   const main = useMemo(() => (present ? wideSummaryRows(analysis) : null), [analysis, present]);
@@ -290,11 +290,11 @@ function WideSummaryTab({ reportDate, analysis, summaryRows, esdMap }) {
   return (
     <div>
       <div className="no-print" style={{ marginBottom: 10 }}>
-        <ExcelButton href={`/api/prepaid-recovery/export/widesummary/${reportDate}`}>Download Excel (all tables)</ExcelButton>
+        <ExcelButton href={`/api/prepaid-recovery/export/${excludePub ? 'widesummarypub' : 'widesummary'}/${reportDate}`}>Download Excel (all tables)</ExcelButton>
       </div>
       <p className="pr-note">
-        Same age-wise summary as the Summary tab, but for <b>all categories</b>: only Government, PDC and GHDT
-        consumers are left out. Tower/department, name-keyword and no-phone consumers are counted. The Summary tab
+        Same age-wise summary as the Summary tab, but for <b>all categories{excludePub ? ' excluding PUB WTR and PUB LIGHT' : ''}</b>: {excludePub ? 'the PUB WTR and PUB LIGHT categories are left out, and so are ' : 'only '}Government, PDC and GHDT
+        consumers{excludePub ? '' : ' are left out'}. Tower/department, name-keyword and no-phone consumers are counted. The Summary tab
         is unchanged. <b>Total negative balance Rs 500+</b> = every counted consumer whose balance is -500 or lower
         (including those who recharged in the last 3 months). {paidWindow(reportDate, paidFrom)} All negative balances are in Lakhs.
       </p>
@@ -348,7 +348,7 @@ function WideSummaryTab({ reportDate, analysis, summaryRows, esdMap }) {
         columns={[
           { header: 'ESD', render: (r) => r.esd, left: true },
           { header: 'Consumers in billing file', render: (r) => int(r.filesN), num: true },
-          { header: 'Left out (Govt / PDC / GHDT)', render: (r) => int(r.filesN - r.n), num: true },
+          { header: excludePub ? 'Left out (Govt / PDC / GHDT / PUB WTR / PUB LIGHT)' : 'Left out (Govt / PDC / GHDT)', render: (r) => int(r.filesN - r.n), num: true },
           { header: 'Counted in this summary', render: (r) => int(r.n), num: true },
         ]}
         rows={sumRows}
@@ -1080,6 +1080,7 @@ function AnalysisTab({ reportDate, previousDate, analysis, prevAnalysis, summary
 const TABS = [
   ['summary', 'Summary'],
   ['allcat', 'Summary - All Categories'],
+  ['allcatpub', 'All Categories excl. PUB WTR / PUB LIGHT'],
   ['noncomm', 'Non-Comm Unbilled'],
   ['payments', 'Payments'],
   ['calllist', 'Call List'],
@@ -1112,6 +1113,7 @@ export default function PrepaidRecoveryView({
       <div className="card">
         {tab === 'summary' && <SummaryTab reportDate={reportDate} summaryRows={summaryRows} esdMap={esdMap} />}
         {tab === 'allcat' && <WideSummaryTab reportDate={reportDate} analysis={analysis} summaryRows={summaryRows} esdMap={esdMap} />}
+        {tab === 'allcatpub' && <WideSummaryTab reportDate={reportDate} analysis={widePubView(analysis)} summaryRows={summaryRows} esdMap={esdMap} excludePub />}
         {tab === 'noncomm' && <NonCommTab reportDate={reportDate} analysis={analysis} esdMap={esdMap} />}
         {tab === 'payments' && <PaymentsTab reportDate={reportDate} paymentsRows={paymentsRows} summaryRows={summaryRows} esdMap={esdMap} />}
         {tab === 'calllist' && <CallListTab reportDate={reportDate} callListRows={callListRows} esdMap={esdMap} />}

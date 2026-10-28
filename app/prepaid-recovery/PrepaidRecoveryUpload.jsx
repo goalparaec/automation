@@ -25,6 +25,9 @@ export default function PrepaidRecoveryUpload() {
   const [esdMap, setEsdMap] = useState(DEFAULT_SETTINGS.esdMap);
   const [results, setResults] = useState(null); // { esdCode: { label, summaryRow } }
   const [recentDates, setRecentDates] = useState([]);
+  // Consumers eligible for Workmaster billing (Non-Comm, unbilled). Built from the files just
+  // uploaded and kept only in this browser page: it is never sent to the server or saved.
+  const [eligible, setEligible] = useState(null); // { date, byEsd: { code: { label, rows } } }
 
   useEffect(() => {
     fetch('/api/prepaid-recovery/esd-map')
@@ -40,6 +43,7 @@ export default function PrepaidRecoveryUpload() {
     }
     setBusy(true);
     setResults(null);
+    setEligible(null);
     setStatus('Loading parser…');
     try {
       const XLSX = await import('xlsx');
@@ -72,6 +76,11 @@ export default function PrepaidRecoveryUpload() {
       await sleep(0);
       const merged = mergeProcessed(processedList);
       const { rows: summaryRows } = summarize(merged, refDate, prevDate);
+      const eligibleByEsd = {};
+      for (const e of merged.nonCommEligibleRows || []) {
+        if (!eligibleByEsd[e.esdCode]) eligibleByEsd[e.esdCode] = { label: e.esdLabel, rows: [] };
+        eligibleByEsd[e.esdCode].rows.push(e.raw);
+      }
 
       setStatus('Saving to the database…');
       const saved = {};
@@ -121,6 +130,7 @@ export default function PrepaidRecoveryUpload() {
       }
 
       setResults(saved);
+      setEligible({ date: reportDate, byEsd: eligibleByEsd });
       setRecentDates((d) => [reportDate, ...d.filter((x) => x !== reportDate)]);
       setStatus(`Done. ${Object.keys(saved).length} ESD(s) saved for ${reportDate}. Payments counted since ${prevDate ? prevDate.toISOString().slice(0, 10) : 'the previous day'}.`);
     } catch (err) {
@@ -129,6 +139,24 @@ export default function PrepaidRecoveryUpload() {
     } finally {
       setBusy(false);
     }
+  }
+
+  // Writes the eligible list straight from the browser. Every column of the billing status
+  // file is kept exactly as it was in the file (same order, same values), no colouring.
+  async function downloadEligible() {
+    if (!eligible) return;
+    const XLSX = await import('xlsx');
+    const wb = XLSX.utils.book_new();
+    let any = false;
+    for (const [code, e] of Object.entries(eligible.byEsd).sort(([a], [b]) => a.localeCompare(b))) {
+      if (!e.rows.length) continue;
+      any = true;
+      const sheet = XLSX.utils.json_to_sheet(e.rows, { header: Object.keys(e.rows[0]) });
+      XLSX.utils.book_append_sheet(wb, sheet, String(e.label || code).replace(/[\\/*?:[\]]/g, ' ').slice(0, 31));
+    }
+    if (!any) { setStatus('No consumers are eligible for Workmaster billing in these files.'); return; }
+    const [y, m, d] = eligible.date.split('-');
+    XLSX.writeFile(wb, `Prepaid-NonComm-Eligible-for-Billing-${d}.${m}.${y}.xlsx`);
   }
 
   return (
@@ -169,6 +197,25 @@ export default function PrepaidRecoveryUpload() {
               {r.label} ({code}) — {r.summaryRow.callListTotal} to call
             </span>
           ))}
+        </div>
+      )}
+
+      {results && eligible && (
+        <div style={{ marginTop: 16, padding: 12, background: '#eef3f9', borderRadius: 8 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>
+            Non-Comm consumers eligible for Workmaster billing: {Object.values(eligible.byEsd).reduce((t, e) => t + e.rows.length, 0).toLocaleString('en-IN')}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            {Object.entries(eligible.byEsd).sort(([a], [b]) => a.localeCompare(b)).map(([code, e]) => (
+              <span key={code} style={{ background: '#fff', borderRadius: 999, padding: '4px 10px', fontSize: 13 }}>
+                {e.label}: {e.rows.length.toLocaleString('en-IN')}
+              </span>
+            ))}
+          </div>
+          <button className="btn" onClick={downloadEligible}>Download eligible list (Excel)</button>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
+            This list is not saved. Download it before leaving this page; to get it again, upload the files again.
+          </div>
         </div>
       )}
 

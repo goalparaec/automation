@@ -5,7 +5,9 @@ import {
   ANALYSIS_COLUMNS, ANALYSIS_TABLES, analysisTableRows, analysisCrossRows, mergedAnalysis, trendRows,
   summarizePaymentsRows, summarizeExcludedRows, bandLabel, reasonLabel, fmtDate,
   WIDE_BANDS, NEG_SIZE_BANDS, widePresent, wideSummaryRows, wideCategoryMatrix, wideGroupRows, wideNegSizeRows,
+  NONCOMM_GROUPS, NONCOMM_LABELS, nonCommPresent, nonCommSummaryRows,
 } from '../../../../lib/prepaidRecoveryCore';
+import DownloadImageButton from '../../../hq-mrr/DownloadImageButton';
 
 // ---------------------------------------------------------------------------
 // Formatting
@@ -56,6 +58,13 @@ function Styles() {
       .pr-scope .pr-chip.good { background: #d6f0db; }
       .pr-scope .pr-chip.bad { background: #f8cbcb; }
       .pr-scope .pr-remark { width: 100%; min-width: 180px; font-size: 12px; }
+      .pr-scope .nc-title { background: #1f3b5c; color: #fff; font-size: 17px; font-weight: 700; text-align: center; padding: 12px 14px; border-radius: 8px 8px 0 0; }
+      .pr-scope .nc-cards { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
+      .pr-scope .nc-card { flex: 1 1 150px; border-radius: 10px; padding: 10px 14px; color: #fff; }
+      .pr-scope .nc-card b { display: block; font-size: 24px; line-height: 1.2; }
+      .pr-scope .nc-card span { font-size: 12px; opacity: 0.95; }
+      .pr-scope table.nc-table th.sub { color: #1f2937; font-weight: 600; }
+      .pr-scope table.nc-table td.tot { font-weight: 700; }
       @media print {
         .app-header, .no-print, .tabs { display: none !important; }
         .pr-scope .pr-wrap { overflow: visible; border: none; }
@@ -344,6 +353,98 @@ function WideSummaryTab({ reportDate, analysis, summaryRows, esdMap }) {
         ]}
         rows={sumRows}
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Non-Comm Unbilled (smart prepaid, no communication for more than 30 days)
+// ---------------------------------------------------------------------------
+const NC_TONES = {
+  total: ['#1f3b5c', '#dce6f1'],
+  billed: ['#2e7d4f', '#ddf0e3'],
+  unbilled: ['#b7791f', '#fbebc8'],
+  eligible: ['#1b7f8c', '#d5eef1'],
+  notEligible: ['#a63d40', '#f6d9da'],
+};
+
+function NonCommTab({ reportDate, analysis, esdMap }) {
+  const present = nonCommPresent(analysis);
+  const data = useMemo(() => (present ? nonCommSummaryRows(analysis) : null), [analysis, present]);
+  if (!present) {
+    return (
+      <p className="pr-note">
+        The Non-Comm Unbilled summary is not stored for this report date. Upload the billing files again for this
+        date to generate it (reports uploaded before this feature was added do not have it).
+      </p>
+    );
+  }
+  const all = 'Goalpara Circle Total';
+  const rows = [...data.rows.map((r) => ({ ...r, name: esdName(esdMap, r.code) })), { ...data.total, name: all, isTotal: true }];
+  const pct = (a, b) => (b ? `${((a / b) * 100).toFixed(1)}%` : '-');
+  const t = data.total;
+  const dmy = fmtDate(reportDate).replace(/\./g, '-');
+  return (
+    <div>
+      <div className="no-print" style={{ marginBottom: 10, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <ExcelButton href={`/api/prepaid-recovery/export/noncomm/${reportDate}`}>Download Excel</ExcelButton>
+        <DownloadImageButton targetId="nc-image" fileName={`Prepaid-NonComm-Unbilled-${dmy}.png`} />
+      </div>
+      <div id="nc-image" style={{ background: '#fff' }}>
+        <div className="nc-title">Goalpara Electrical Circle - Smart Prepaid Non-Comm (more than 30 days) Report as on {dmy}</div>
+        <div className="nc-cards">
+          {NONCOMM_GROUPS.map((g) => (
+            <div key={g} className="nc-card" style={{ background: NC_TONES[g][0] }}>
+              <b>{int(t[g].total)}</b>
+              <span>{NONCOMM_LABELS[g]}</span>
+            </div>
+          ))}
+        </div>
+        <div className="pr-wrap">
+          <table className="pr-table nc-table">
+            <thead>
+              <tr>
+                <th rowSpan={2} style={{ minWidth: 150 }}>ESD</th>
+                {NONCOMM_GROUPS.map((g) => (
+                  <th key={g} colSpan={3} style={{ background: NC_TONES[g][0], borderColor: NC_TONES[g][0] }}>{NONCOMM_LABELS[g]}</th>
+                ))}
+              </tr>
+              <tr>
+                {NONCOMM_GROUPS.map((g) => ['1-Ph', '3-Ph', 'Total'].map((h) => (
+                  <th key={`${g}${h}`} className="sub" style={{ background: NC_TONES[g][1], borderColor: '#d9e1ea' }}>{h}</th>
+                )))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.code} className={r.isTotal ? 'total' : undefined}>
+                  <td className="left" style={{ fontWeight: 600 }}>{r.name}</td>
+                  {NONCOMM_GROUPS.map((g) => [r[g].p1, r[g].p3, r[g].total].map((v, k) => (
+                    <td key={`${g}${k}`} className={`num${k === 2 ? ' tot' : ''}`} style={!r.isTotal && k === 2 ? { background: NC_TONES[g][1] } : undefined}>{int(v)}</td>
+                  )))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <h3 className="pr-h">Share of Total Non-Comm Cases</h3>
+        <DataTable
+          columns={[
+            { header: 'ESD', render: (r) => r.name, left: true },
+            { header: 'Total Non-Comm Cases', render: (r) => int(r.total.total), num: true },
+            { header: 'Billed %', render: (r) => pct(r.billed.total, r.total.total), num: true },
+            { header: 'Unbilled %', render: (r) => pct(r.unbilled.total, r.total.total), num: true },
+            { header: 'Eligible %', render: (r) => pct(r.eligible.total, r.total.total), num: true },
+            { header: 'Not Eligible %', render: (r) => pct(r.notEligible.total, r.total.total), num: true },
+          ]}
+          rows={rows.map((r) => (r.isTotal ? { ...r, _total: true } : r))}
+        />
+      </div>
+      <p className="pr-note no-print">
+        The list of consumers eligible for Workmaster billing is not stored. It is created while you upload the
+        billing files, on the upload page.
+      </p>
     </div>
   );
 }
@@ -979,6 +1080,7 @@ function AnalysisTab({ reportDate, previousDate, analysis, prevAnalysis, summary
 const TABS = [
   ['summary', 'Summary'],
   ['allcat', 'Summary - All Categories'],
+  ['noncomm', 'Non-Comm Unbilled'],
   ['payments', 'Payments'],
   ['calllist', 'Call List'],
   ['stillunpaid', 'Still Unpaid'],
@@ -1010,6 +1112,7 @@ export default function PrepaidRecoveryView({
       <div className="card">
         {tab === 'summary' && <SummaryTab reportDate={reportDate} summaryRows={summaryRows} esdMap={esdMap} />}
         {tab === 'allcat' && <WideSummaryTab reportDate={reportDate} analysis={analysis} summaryRows={summaryRows} esdMap={esdMap} />}
+        {tab === 'noncomm' && <NonCommTab reportDate={reportDate} analysis={analysis} esdMap={esdMap} />}
         {tab === 'payments' && <PaymentsTab reportDate={reportDate} paymentsRows={paymentsRows} summaryRows={summaryRows} esdMap={esdMap} />}
         {tab === 'calllist' && <CallListTab reportDate={reportDate} callListRows={callListRows} esdMap={esdMap} />}
         {tab === 'stillunpaid' && (

@@ -58,13 +58,16 @@ function Styles() {
       .pr-scope .pr-chip.good { background: #d6f0db; }
       .pr-scope .pr-chip.bad { background: #f8cbcb; }
       .pr-scope .pr-remark { width: 100%; min-width: 180px; font-size: 12px; }
-      .pr-scope .nc-title { background: #1f3b5c; color: #fff; font-size: 17px; font-weight: 700; text-align: center; padding: 12px 14px; border-radius: 8px 8px 0 0; }
-      .pr-scope .nc-cards { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
-      .pr-scope .nc-card { flex: 1 1 150px; border-radius: 10px; padding: 10px 14px; color: #fff; }
-      .pr-scope .nc-card b { display: block; font-size: 24px; line-height: 1.2; }
-      .pr-scope .nc-card span { font-size: 12px; opacity: 0.95; }
-      .pr-scope table.nc-table th.sub { color: #1f2937; font-weight: 600; }
+      .pr-scope .nc-box { display: inline-block; max-width: 100%; background: #fff; }
+      .pr-scope .nc-title { background: #dce6f1; color: #111; font-size: 16px; font-weight: 700; text-align: center; padding: 10px 12px; border: 1px solid #c9d3df; border-bottom: none; }
+      .pr-scope table.nc-table { width: 100%; table-layout: auto; border-collapse: collapse; font-size: 13px; }
+      .pr-scope table.nc-table th, .pr-scope table.nc-table td { padding: 6px 7px; border: 1px solid #d3dae3; white-space: nowrap; text-align: center; }
+      .pr-scope table.nc-table th { color: #fff; font-weight: 700; white-space: normal; line-height: 1.25; }
+      .pr-scope table.nc-table th.sub { color: #1f2937; font-weight: 600; white-space: nowrap; }
+      .pr-scope table.nc-table th.esd { background: #dce6f1; color: #111; }
+      .pr-scope table.nc-table td.esdname { text-align: left; font-weight: 500; white-space: normal; width: 1%; min-width: 0; }
       .pr-scope table.nc-table td.tot { font-weight: 700; }
+      .pr-scope table.nc-table tr.total td { font-weight: 700; background: #fff2cc; }
       @media print {
         .app-header, .no-print, .tabs { display: none !important; }
         .pr-scope .pr-wrap { overflow: visible; border: none; }
@@ -381,65 +384,43 @@ function NonCommTab({ reportDate, analysis, esdMap }) {
   }
   const all = 'Goalpara Circle Total';
   const rows = [...data.rows.map((r) => ({ ...r, name: esdName(esdMap, r.code) })), { ...data.total, name: all, isTotal: true }];
-  const pct = (a, b) => (b ? `${((a / b) * 100).toFixed(1)}%` : '-');
-  const t = data.total;
   const dmy = fmtDate(reportDate).replace(/\./g, '-');
   return (
     <div>
+      <style>{'@media print { @page { size: A4 landscape; margin: 10mm; } .pr-scope .nc-box { width: 100%; } }'}</style>
       <div className="no-print" style={{ marginBottom: 10, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <ExcelButton href={`/api/prepaid-recovery/export/noncomm/${reportDate}`}>Download Excel</ExcelButton>
         <DownloadImageButton targetId="nc-image" fileName={`Prepaid-NonComm-Unbilled-${dmy}.png`} />
       </div>
+      <div className="nc-box">
       <div id="nc-image" style={{ background: '#fff' }}>
         <div className="nc-title">Goalpara Electrical Circle - Smart Prepaid Non-Comm (more than 30 days) Report as on {dmy}</div>
-        <div className="nc-cards">
-          {NONCOMM_GROUPS.map((g) => (
-            <div key={g} className="nc-card" style={{ background: NC_TONES[g][0] }}>
-              <b>{int(t[g].total)}</b>
-              <span>{NONCOMM_LABELS[g]}</span>
-            </div>
-          ))}
-        </div>
-        <div className="pr-wrap">
-          <table className="pr-table nc-table">
-            <thead>
-              <tr>
-                <th rowSpan={2} style={{ minWidth: 150 }}>ESD</th>
-                {NONCOMM_GROUPS.map((g) => (
-                  <th key={g} colSpan={3} style={{ background: NC_TONES[g][0], borderColor: NC_TONES[g][0] }}>{NONCOMM_LABELS[g]}</th>
-                ))}
-              </tr>
-              <tr>
-                {NONCOMM_GROUPS.map((g) => ['1-Ph', '3-Ph', 'Total'].map((h) => (
-                  <th key={`${g}${h}`} className="sub" style={{ background: NC_TONES[g][1], borderColor: '#d9e1ea' }}>{h}</th>
+        <table className="pr-table nc-table">
+          <thead>
+            <tr>
+              <th rowSpan={2} className="esd">ESD</th>
+              {NONCOMM_GROUPS.map((g) => (
+                <th key={g} colSpan={3} style={{ background: NC_TONES[g][0], borderColor: NC_TONES[g][0] }}>{NONCOMM_LABELS[g]}</th>
+              ))}
+            </tr>
+            <tr>
+              {NONCOMM_GROUPS.map((g) => ['1-Ph', '3-Ph', 'Total'].map((h) => (
+                <th key={`${g}${h}`} className="sub" style={{ background: NC_TONES[g][1] }}>{h}</th>
+              )))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.code} className={r.isTotal ? 'total' : undefined}>
+                <td className="left esdname">{r.name}</td>
+                {NONCOMM_GROUPS.map((g) => [r[g].p1, r[g].p3, r[g].total].map((v, k) => (
+                  <td key={`${g}${k}`} className={k === 2 ? 'tot' : undefined} style={!r.isTotal && k === 2 ? { background: NC_TONES[g][1] } : undefined}>{int(v)}</td>
                 )))}
               </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.code} className={r.isTotal ? 'total' : undefined}>
-                  <td className="left" style={{ fontWeight: 600 }}>{r.name}</td>
-                  {NONCOMM_GROUPS.map((g) => [r[g].p1, r[g].p3, r[g].total].map((v, k) => (
-                    <td key={`${g}${k}`} className={`num${k === 2 ? ' tot' : ''}`} style={!r.isTotal && k === 2 ? { background: NC_TONES[g][1] } : undefined}>{int(v)}</td>
-                  )))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <h3 className="pr-h">Share of Total Non-Comm Cases</h3>
-        <DataTable
-          columns={[
-            { header: 'ESD', render: (r) => r.name, left: true },
-            { header: 'Total Non-Comm Cases', render: (r) => int(r.total.total), num: true },
-            { header: 'Billed %', render: (r) => pct(r.billed.total, r.total.total), num: true },
-            { header: 'Unbilled %', render: (r) => pct(r.unbilled.total, r.total.total), num: true },
-            { header: 'Eligible %', render: (r) => pct(r.eligible.total, r.total.total), num: true },
-            { header: 'Not Eligible %', render: (r) => pct(r.notEligible.total, r.total.total), num: true },
-          ]}
-          rows={rows.map((r) => (r.isTotal ? { ...r, _total: true } : r))}
-        />
+            ))}
+          </tbody>
+        </table>
+      </div>
       </div>
       <p className="pr-note no-print">
         The list of consumers eligible for Workmaster billing is not stored. It is created while you upload the

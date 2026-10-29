@@ -68,6 +68,14 @@ function Styles() {
       .pr-scope table.nc-table td.esdname { text-align: left; font-weight: 500; white-space: normal; width: 1%; min-width: 0; }
       .pr-scope table.nc-table td.tot { font-weight: 700; }
       .pr-scope table.nc-table tr.total td { font-weight: 700; background: #fff2cc; }
+      .pr-scope .nb-title { color: #1f3b5c; font-size: 16px; font-weight: 700; text-align: center; padding: 12px; border: 1px solid #c9d3df; border-bottom: none; }
+      .pr-scope table.nb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      .pr-scope table.nb-table th { background: #1f3b5c; color: #fff; font-weight: 700; padding: 8px 8px; border: 1px solid #1f3b5c; text-align: center; line-height: 1.25; }
+      .pr-scope table.nb-table td { padding: 6px 8px; border: 1px solid #d3dae3; text-align: center; white-space: nowrap; }
+      .pr-scope table.nb-table td.esdname { white-space: normal; }
+      .pr-scope table.nb-table tr.alt td { background: #f3f6fa; }
+      .pr-scope table.nb-table tr.total td { background: #fff2cc; font-weight: 700; }
+      .pr-scope table.nb-table td.tot { font-weight: 700; }
       @media print {
         .app-header, .no-print, .tabs { display: none !important; }
         .pr-scope .pr-wrap { overflow: visible; border: none; }
@@ -318,16 +326,34 @@ function WideSummaryTab({ reportDate, analysis, summaryRows, esdMap, excludePub 
       />
 
       <h3 className="pr-h">Negative balance by band (Lakhs)</h3>
-      <DataTable
-        columns={[
-          { header: 'ESD', render: (r) => r.esd, left: true },
-          ...bandCols((r, b) => r.band[b].amt, lakhs),
-          { header: 'Not recharged total (Lakhs)', render: (r) => lakhs(r.ageAmt), num: true },
-          { header: 'Recharged in last 3 months (Lakhs)', render: (r) => lakhs(r.recent.amt), num: true },
-          { header: 'Total negative balance Rs 500 and above (Lakhs)', render: (r) => lakhs(r.neg500.amt), num: true },
-        ]}
-        rows={sumRows}
-      />
+      <div className="no-print" style={{ marginBottom: 8 }}>
+        <DownloadImageButton targetId="negband-image" fileName={`Prepaid-Negative-Balance-${excludePub ? 'ExclPUB-' : ''}${fmtDate(reportDate).replace(/\./g, '-')}.png`} />
+      </div>
+      <div className="nc-box">
+        <div id="negband-image" style={{ background: '#fff' }}>
+          <div className="nb-title">Goalpara Electrical Circle - Negative Balance 500 and above (Lakhs) as on {fmtDate(reportDate)} (Excl. Govt)</div>
+          <table className="pr-table nb-table">
+            <thead>
+              <tr>
+                <th>ESD</th>
+                {WIDE_BANDS.map((b) => <th key={b}>{bandLabel(b)}</th>)}
+                <th>Recharged in last 3 months</th>
+                <th>Total negative balance Rs 500 and above</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sumRows.map((r, i) => (
+                <tr key={r.esd} className={r._total ? 'total' : i % 2 ? 'alt' : undefined}>
+                  <td className="esdname">{r.esd}</td>
+                  {WIDE_BANDS.map((b) => <td key={b}>{lakhs(r.band[b].amt)}</td>)}
+                  <td>{lakhs(r.recent.amt)}</td>
+                  <td className="tot">{lakhs(r.neg500.amt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {matrixBlock('ESD x Category: negative balance Rs 500 and above (Lakhs)', 'amt', lakhs)}
       {matrixBlock('ESD x Category: consumers with negative balance Rs 500 and above', 'n', int)}

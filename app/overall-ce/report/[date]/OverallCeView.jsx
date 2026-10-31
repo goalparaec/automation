@@ -21,11 +21,11 @@ function buildLayout(rows, ext) {
   const temp = ext && hasValue(rows, 'temporary_amount');
   const dExtra = [
     ...(conv ? [['Conventional Prepaid Amount Not Reflected in ARMS', 'conv_prepaid_amount', 'n']] : []),
-    ...(temp ? [['Temporary Amount Not Reflected in ARMS', 'temporary_amount', 'n']] : []),
+    ...(temp ? [['Temporary Connection Amount', 'temporary_amount', 'n']] : []),
   ];
   const cExtra = [
     ...(conv ? [['Conventional Prepaid Amount Not Reflected in ARMS', 'conv_prepaid_collection', 'n']] : []),
-    ...(temp ? [['Temporary Amount Not Reflected in ARMS', 'temporary_collection', 'n']] : []),
+    ...(temp ? [['Temporary Connection Amount', 'temporary_collection', 'n']] : []),
   ];
   const cols = [
     ['Current Demand (Postpaid)', 'postpaid_current', 'n'],
@@ -35,7 +35,7 @@ function buildLayout(rows, ext) {
     ['Coll Eff. % (Postpaid)', 'postpaid_ce', 'p', true],
     ['Current Demand (Prepaid)', 'prepaid_current', 'n'],
     ['Manual Amount Not Reflected in ARMS', 'manual_amount', 'n'],
-    ['Assessment Amount Not Reflected in ARMS', 'assessment_amount', 'n'],
+    ['Assessment Amount', 'assessment_amount', 'n'],
     ...dExtra,
     ['Converted Current Demand', 'converted_current', 'n'],
     ['Grand Total Current Demand', gd, 'n'],
@@ -43,7 +43,7 @@ function buildLayout(rows, ext) {
     ['Credit Adjustment', 'credit_adjustment', 'n'],
     ['Outstanding Payment Amount', 'outstanding_payment', 'n'],
     ['Manual Amount Not Reflected in ARMS', 'manual_collection', 'n'],
-    ['Assessment Amount Not Reflected in ARMS', 'assessment_collection', 'n'],
+    ['Assessment Amount', 'assessment_collection', 'n'],
     ...cExtra,
     ['Collection Against Converted', 'converted_collection', 'n'],
     ['Grand Total Collection (Prepaid & Postpaid)', gc, 'n'],

@@ -32,10 +32,19 @@ function parseMonthlyFile(buffer) {
   // Columns come from the header row if it names them, else the two columns right after the name.
   let manualCol = null;
   let assessCol = null;
+  let convCol = null; // optional: older 3-column files do not have these two
+  let tempCol = null;
   for (const r of raw) {
     const m = r.findIndex((c) => /manual/i.test(c ?? ''));
     const a = r.findIndex((c) => /assess/i.test(c ?? ''));
-    if (m >= 0 && a >= 0) { manualCol = m; assessCol = a; break; }
+    if (m >= 0 && a >= 0) {
+      manualCol = m; assessCol = a;
+      const cv = r.findIndex((c) => /conventional/i.test(c ?? ''));
+      const tp = r.findIndex((c) => /temporary/i.test(c ?? ''));
+      convCol = cv >= 0 ? cv : null;
+      tempCol = tp >= 0 ? tp : null;
+      break;
+    }
   }
 
   const values = {};
@@ -49,6 +58,9 @@ function parseMonthlyFile(buffer) {
       manual_amount: parseNumericValue(r[mc]) ?? 0,
       assessment_amount: parseNumericValue(r[ac]) ?? 0,
     };
+    // Only touched when the file has the column; otherwise the saved value is kept (see POST).
+    if (convCol !== null) values[esd].conv_prepaid_amount = parseNumericValue(r[convCol]) ?? 0;
+    if (tempCol !== null) values[esd].temporary_amount = parseNumericValue(r[tempCol]) ?? 0;
   }
   const missing = ESDS.filter((e) => !values[e]);
   if (missing.length) throw new Error(`Could not find a row for: ${missing.join(', ')}. Use the template (one row per sub-division).`);
@@ -71,10 +83,18 @@ export async function GET(request) {
         { header: 'Sub-Division', key: 'esd', width: 18 },
         { header: 'Manual Amount Not Reflected in ARMS', key: 'manual', width: 38 },
         { header: 'Assessment Amount Not Reflected in ARMS', key: 'assess', width: 42 },
+        { header: 'Conventional Prepaid Collection Not Reflected in ARMS', key: 'conv', width: 52 },
+        { header: 'Temporary Collection Not Reflected in ARMS', key: 'temp', width: 44 },
       ];
       ws.getRow(1).font = { bold: true };
       for (const esd of ESDS) {
-        ws.addRow({ esd, manual: data[esd]?.manual_amount ?? 0, assess: data[esd]?.assessment_amount ?? 0 });
+        ws.addRow({
+          esd,
+          manual: data[esd]?.manual_amount ?? 0,
+          assess: data[esd]?.assessment_amount ?? 0,
+          conv: data[esd]?.conv_prepaid_amount ?? 0,
+          temp: data[esd]?.temporary_amount ?? 0,
+        });
       }
       const buffer = await wb.xlsx.writeBuffer();
       return new NextResponse(buffer, {
@@ -107,6 +127,12 @@ export async function POST(request) {
         values = parseMonthlyFile(Buffer.from(await file.arrayBuffer()));
       } catch (err) {
         return NextResponse.json({ error: `Could not read file: ${err.message}` }, { status: 422 });
+      }
+      // A file without the two extra columns must not wipe values already saved for them.
+      const saved = await getMonthlyInputs(month);
+      for (const esd of ESDS) {
+        if (values[esd].conv_prepaid_amount === undefined) values[esd].conv_prepaid_amount = saved[esd]?.conv_prepaid_amount ?? 0;
+        if (values[esd].temporary_amount === undefined) values[esd].temporary_amount = saved[esd]?.temporary_amount ?? 0;
       }
     } else {
       ({ month, values } = await request.json());

@@ -12,8 +12,9 @@ export async function GET(request, { params }) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return xlsxError(new Error('Invalid date.'));
   try {
     const report = await getOverallCE(date);
-    const wb = await buildOverallCeWorkbook(report);
-    return xlsxResponse(wb, `Overall_CE_${dmy(date)}.xlsx`);
+    const extended = new URL(request.url).searchParams.get('ext') === '1';
+    const wb = await buildOverallCeWorkbook(report, { extended });
+    return xlsxResponse(wb, `Overall_CE_${dmy(date)}${extended ? '_with_additional_columns' : ''}.xlsx`);
   } catch (err) {
     return xlsxError(err);
   }
@@ -29,8 +30,9 @@ export async function POST(request, { params }) {
     if (!report || !Array.isArray(report.rows) || report.rows.length === 0 || report.reportDate !== date) {
       throw new Error('The report data sent with the request is not valid.');
     }
-    const wb = await buildOverallCeWorkbook({ ...report, sources: report.sources || [], missing: report.missing || [] });
-    return xlsxResponse(wb, `Overall_CE_${dmy(date)}.xlsx`);
+    const extended = new URL(request.url).searchParams.get('ext') === '1';
+    const wb = await buildOverallCeWorkbook({ ...report, sources: report.sources || [], missing: report.missing || [] }, { extended });
+    return xlsxResponse(wb, `Overall_CE_${dmy(date)}${extended ? '_with_additional_columns' : ''}.xlsx`);
   } catch (err) {
     return xlsxError(err);
   }

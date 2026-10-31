@@ -6,37 +6,68 @@ import { toPng } from 'html-to-image';
 
 // Column layout, the same as the CE_All sheet in the Excel report.
 // kind: n = amount, p = percentage.  heat = gets the red-yellow-green scale.
-const BANDS = [
-  ['Postpaid Demand and Collection', 5, 'grey'],
-  ['Prepaid and Additional Demand', 4, 'grey'],
-  ['Grand Total Current Demand', 1, 'green'],
-  ['Prepaid and Additional Collection', 6, 'grey'],
-  ['Grand Total Collection (Prepaid & Postpaid)', 1, 'green'],
-  ['Overall Coll Eff. %', 1, 'green'],
-];
-// Columns that stand alone under their own band: the band and the heading are
-// the same text, so they are merged into one cell spanning both header rows.
-const SOLO = new Set(['grand_demand', 'grand_collection', 'overall_ce']);
-const COLS = [
-  ['Current Demand (Postpaid)', 'postpaid_current', 'n'],
-  ['Arrear Demand (Postpaid)', 'postpaid_arrear', 'n'],
-  ['Daily Collection (Postpaid)', 'postpaid_daily', 'n', true],
-  ['Total Collection (Postpaid)', 'postpaid_total', 'n'],
-  ['Coll Eff. % (Postpaid)', 'postpaid_ce', 'p', true],
-  ['Current Demand (Prepaid)', 'prepaid_current', 'n'],
-  ['Manual Amount Not Reflected in ARMS', 'manual_amount', 'n'],
-  ['Assessment Amount Not Reflected in ARMS', 'assessment_amount', 'n'],
-  ['Converted Current Demand', 'converted_current', 'n'],
-  ['Grand Total Current Demand', 'grand_demand', 'n'],
-  ['Recharge of Smart Prepaid', 'recharge', 'n'],
-  ['Credit Adjustment', 'credit_adjustment', 'n'],
-  ['Outstanding Payment Amount', 'outstanding_payment', 'n'],
-  ['Manual Amount Not Reflected in ARMS', 'manual_collection', 'n'],
-  ['Assessment Amount Not Reflected in ARMS', 'assessment_collection', 'n'],
-  ['Collection Against Converted', 'converted_collection', 'n'],
-  ['Grand Total Collection (Prepaid & Postpaid)', 'grand_collection', 'n'],
-  ['Overall Coll Eff. %', 'overall_ce', 'p', true],
-];
+// The normal version is the original layout. The "with additional columns"
+// version adds Conventional Prepaid and Temporary to both sides, but each one
+// is drawn in the image only when at least one ESD has a value in it (the
+// Excel always carries both).
+const SOLO = new Set(['grand_demand', 'grand_collection', 'overall_ce', 'grand_demand_ext', 'grand_collection_ext', 'overall_ce_ext']);
+const hasValue = (rows, key) => rows.some((r) => !r.isTotal && Math.abs(Number(r[key]) || 0) > 0);
+
+function buildLayout(rows, ext) {
+  const gd = ext ? 'grand_demand_ext' : 'grand_demand';
+  const gc = ext ? 'grand_collection_ext' : 'grand_collection';
+  const ce = ext ? 'overall_ce_ext' : 'overall_ce';
+  const conv = ext && hasValue(rows, 'conv_prepaid_amount');
+  const temp = ext && hasValue(rows, 'temporary_amount');
+  const dExtra = [
+    ...(conv ? [['Conventional Prepaid Amount Not Reflected in ARMS', 'conv_prepaid_amount', 'n']] : []),
+    ...(temp ? [['Temporary Amount Not Reflected in ARMS', 'temporary_amount', 'n']] : []),
+  ];
+  const cExtra = [
+    ...(conv ? [['Conventional Prepaid Amount Not Reflected in ARMS', 'conv_prepaid_collection', 'n']] : []),
+    ...(temp ? [['Temporary Amount Not Reflected in ARMS', 'temporary_collection', 'n']] : []),
+  ];
+  const cols = [
+    ['Current Demand (Postpaid)', 'postpaid_current', 'n'],
+    ['Arrear Demand (Postpaid)', 'postpaid_arrear', 'n'],
+    ['Daily Collection (Postpaid)', 'postpaid_daily', 'n', true],
+    ['Total Collection (Postpaid)', 'postpaid_total', 'n'],
+    ['Coll Eff. % (Postpaid)', 'postpaid_ce', 'p', true],
+    ['Current Demand (Prepaid)', 'prepaid_current', 'n'],
+    ['Manual Amount Not Reflected in ARMS', 'manual_amount', 'n'],
+    ['Assessment Amount Not Reflected in ARMS', 'assessment_amount', 'n'],
+    ...dExtra,
+    ['Converted Current Demand', 'converted_current', 'n'],
+    ['Grand Total Current Demand', gd, 'n'],
+    ['Recharge of Smart Prepaid', 'recharge', 'n'],
+    ['Credit Adjustment', 'credit_adjustment', 'n'],
+    ['Outstanding Payment Amount', 'outstanding_payment', 'n'],
+    ['Manual Amount Not Reflected in ARMS', 'manual_collection', 'n'],
+    ['Assessment Amount Not Reflected in ARMS', 'assessment_collection', 'n'],
+    ...cExtra,
+    ['Collection Against Converted', 'converted_collection', 'n'],
+    ['Grand Total Collection (Prepaid & Postpaid)', gc, 'n'],
+    ['Overall Coll Eff. %', ce, 'p', true],
+  ];
+  const bands = [
+    ['Postpaid Demand and Collection', 5, 'grey'],
+    ['Prepaid and Additional Demand', 4 + dExtra.length, 'grey'],
+    ['Grand Total Current Demand', 1, 'green'],
+    ['Prepaid and Additional Collection', 6 + cExtra.length, 'grey'],
+    ['Grand Total Collection (Prepaid & Postpaid)', 1, 'green'],
+    ['Overall Coll Eff. %', 1, 'green'],
+  ];
+  // The wide table is shown as two tables, one below the other: up to Grand
+  // Total Current Demand, then the collection side.
+  const split = cols.findIndex((c) => c[1] === gd) + 1;
+  return {
+    tables: [
+      { bands: bands.slice(0, 3), cols: cols.slice(0, split) },
+      { bands: bands.slice(3), cols: cols.slice(split) },
+    ],
+    heatKeys: ['postpaid_daily', 'postpaid_ce', ce],
+  };
+}
 
 // Excel's 3-colour scale on the 5 sub-division rows only (totals are not
 // coloured): lowest = red, middle (50th percentile) = yellow, highest = green.
@@ -68,13 +99,6 @@ function buildHeat(rows, key) {
   }
   return out;
 }
-
-// The wide table is shown as two tables, one below the other: up to Grand Total
-// Current Demand, then the collection side.
-const TABLES = [
-  { bands: BANDS.slice(0, 3), cols: COLS.slice(0, 10) },
-  { bands: BANDS.slice(3), cols: COLS.slice(10) },
-];
 
 const dmy = (iso) => iso.split('-').reverse().join('-');
 function monthName(iso) {
@@ -109,6 +133,7 @@ table.ce-table { border-collapse: collapse; table-layout: fixed; font-size: 13px
 
 export default function OverallCeView({ report }) {
   const [lakhs, setLakhs] = useState(false);
+  const [ext, setExt] = useState(false); // version with Conventional Prepaid + Temporary
   const [date, setDate] = useState(report.reportDate);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -130,18 +155,20 @@ export default function OverallCeView({ report }) {
   }, [router]);
   const { rows, sources, missing, monthlyPresent } = report;
 
+  const layout = useMemo(() => buildLayout(rows, ext), [rows, ext]);
+  const TABLES = layout.tables;
   const heat = useMemo(() => {
     const h = {};
-    for (const [, key, , isHeat] of COLS) if (isHeat) h[key] = buildHeat(rows, key);
+    for (const key of layout.heatKeys) h[key] = buildHeat(rows, key);
     return h;
-  }, [rows]);
+  }, [rows, layout]);
 
   // The Excel is built from the very report shown on this page, so it always matches the image.
   async function downloadExcel() {
     setBusy(true);
     setErr(null);
     try {
-      const res = await fetch(`/api/overall-ce/report/${report.reportDate}/excel`, {
+      const res = await fetch(`/api/overall-ce/report/${report.reportDate}/excel${ext ? '?ext=1' : ''}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(report),
@@ -150,7 +177,7 @@ export default function OverallCeView({ report }) {
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Overall_CE_${report.reportDate.split('-').reverse().join('.')}.xlsx`;
+      a.download = `Overall_CE_${report.reportDate.split('-').reverse().join('.')}${ext ? '_with_additional_columns' : ''}.xlsx`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     } catch (e) {
@@ -174,7 +201,7 @@ export default function OverallCeView({ report }) {
         skipFonts: true,
       });
       const a = document.createElement('a');
-      a.download = `Overall_CE_${report.reportDate}${lakhs ? '_Lakhs' : ''}.png`;
+      a.download = `Overall_CE_${report.reportDate}${ext ? '_with_additional_columns' : ''}${lakhs ? '_Lakhs' : ''}.png`;
       a.href = dataUrl;
       a.click();
     } catch (e) {
@@ -195,6 +222,9 @@ export default function OverallCeView({ report }) {
           <button className="btn" onClick={() => { if (date) window.location.href = `/overall-ce/report/${date}`; }}>View</button>
           <label style={{ minWidth: 0 }}>
             <input type="checkbox" checked={lakhs} onChange={(e) => setLakhs(e.target.checked)} /> Show in Rs Lakhs
+          </label>
+          <label style={{ minWidth: 0 }}>
+            <input type="checkbox" checked={ext} onChange={(e) => setExt(e.target.checked)} /> With Conventional Prepaid and Temporary columns
           </label>
           <button className="btn secondary" onClick={downloadImage} disabled={busy}>
             {busy ? 'Rendering...' : 'Download image'}

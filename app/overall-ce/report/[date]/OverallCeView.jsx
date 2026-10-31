@@ -21,11 +21,11 @@ function buildLayout(rows, ext) {
   const temp = ext && hasValue(rows, 'temporary_amount');
   const dExtra = [
     ...(conv ? [['Conventional Prepaid Amount Not Reflected in ARMS', 'conv_prepaid_amount', 'n']] : []),
-    ...(temp ? [['Temporary Connection Amount', 'temporary_amount', 'n']] : []),
+    ...(temp ? [['Temporary Connection Amount Not Reflected in ARMS', 'temporary_amount', 'n']] : []),
   ];
   const cExtra = [
     ...(conv ? [['Conventional Prepaid Amount Not Reflected in ARMS', 'conv_prepaid_collection', 'n']] : []),
-    ...(temp ? [['Temporary Connection Amount', 'temporary_collection', 'n']] : []),
+    ...(temp ? [['Temporary Connection Amount Not Reflected in ARMS', 'temporary_collection', 'n']] : []),
   ];
   const cols = [
     ['Current Demand (Postpaid)', 'postpaid_current', 'n'],

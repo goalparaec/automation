@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import {
-  DEFAULT_TOLERANCE, normalizeStatement, normalizeStatus, billDateCounts, findSingleBillCandidates, toDate,
+  normalizeStatement, normalizeStatus, billDateCounts, findSingleBillCandidates, toDate,
 } from '../../lib/prepaidSingleBillCore.js';
 import { buildSingleBillWorkbook } from '../../lib/prepaidSingleBillExcel.js';
 
@@ -23,7 +23,6 @@ export default function SingleBillClient() {
   const [data, setData] = useState(null); // { statement, status }
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [tolerance, setTolerance] = useState(String(DEFAULT_TOLERANCE));
   const [minUnits, setMinUnits] = useState('0');
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -63,7 +62,7 @@ export default function SingleBillClient() {
     if (!f || !t || f > t) { setMsg({ type: 'error', text: 'Choose a valid From and To date.' }); return; }
     const r = findSingleBillCandidates({
       statement: data.statement, status: data.status, from: f, to: t,
-      tolerance: Number(tolerance) || 0, minUnits: Number(minUnits) || 0,
+      minUnits: Number(minUnits) || 0,
     });
     setResult({ ...r, from: f, to: t });
     setMsg(null);
@@ -96,7 +95,7 @@ export default function SingleBillClient() {
         <p>
           Finds consumers whose <strong>whole month was billed in one bill</strong>: the last bill in the Billing Payment
           Status file is the same bill as the Prepaid Statement&apos;s last Bill Date, and its Unit Billed equals the
-          statement&apos;s total month units. Shows the month-end balance, the current balance and any payment made on or
+          statement&apos;s total month units exactly. Shows the month-end balance, the current balance and any payment made on or
           after that bill (any month).
         </p>
         <div className="field-row">
@@ -121,14 +120,12 @@ export default function SingleBillClient() {
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
           <div className="field-row">
-            <label>Units tolerance</label>
-            <input type="number" step="0.1" min="0" value={tolerance} onChange={(e) => setTolerance(e.target.value)} style={{ width: 90 }} />
-            <label>Minimum month units</label>
+            <label>Minimum units in the single bill</label>
             <input type="number" min="0" value={minUnits} onChange={(e) => setMinUnits(e.target.value)} style={{ width: 90 }} />
           </div>
           <p style={{ fontSize: 13, margin: '4px 0 10px' }}>
             Bill Dates in the statement:{' '}
-            {dates.slice(-12).map((d) => `${dmy(d.date)} (${d.count.toLocaleString('en-IN')})`).join(', ')}
+            {dates.map((d) => `${dmy(d.date)} (${d.count.toLocaleString('en-IN')})`).join(', ')}
           </p>
           <button className="btn" onClick={find}>Find consumers</button>
         </div>
@@ -143,7 +140,7 @@ export default function SingleBillClient() {
             <table className="report-table" style={{ fontSize: 13 }}>
               <tbody>
                 <tr><td>Statement consumers with a Bill Date in range</td><td>{result.stats.inRange.toLocaleString('en-IN')}</td></tr>
-                <tr><td>Left out: month units not above minimum</td><td>{result.stats.belowMinUnits.toLocaleString('en-IN')}</td></tr>
+                <tr><td>Left out: single bill units below the minimum (or zero)</td><td>{result.stats.belowMinUnits.toLocaleString('en-IN')}</td></tr>
                 <tr><td>Left out: not in the status file</td><td>{result.stats.notInStatus.toLocaleString('en-IN')}</td></tr>
                 <tr><td>Left out: billed again since (a newer last bill)</td><td>{result.stats.billedAgain.toLocaleString('en-IN')}</td></tr>
                 <tr><td>Left out: last bill is only part of the month</td><td>{result.stats.severalBills.toLocaleString('en-IN')}</td></tr>

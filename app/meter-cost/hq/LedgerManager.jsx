@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LEDGERS } from '../../../lib/meterCostHq';
+import { ESD_BY_CODE, ESD_CODES } from '../../../lib/meterCostCore';
 
 export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers = [] }) {
   const L = LEDGERS[type];
@@ -43,7 +44,7 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
     setEditId(p.id);
     setConflict(null);
     setStatus(null);
-    setForm({ no: p[L.noCol], date: String(p[L.dateCol]).slice(0, 10), ph1: String(p.ph1), ph3: String(p.ph3), note: p.note || '', req_no: p.req_no || '' });
+    setForm({ esd_code: p.esd_code || '', no: p[L.noCol], date: String(p[L.dateCol]).slice(0, 10), ph1: String(p.ph1), ph3: String(p.ph3), note: p.note || '', req_no: p.req_no || '' });
   }
 
   function cancelEdit() {
@@ -63,6 +64,15 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
       <div className="card">
         <h2>{L.title}</h2>
         <div className="field-row">
+          {L.esd && (
+            <>
+              <label>ESD</label>
+              <select value={form.esd_code} onChange={set('esd_code')}>
+                <option value="">Choose ESD</option>
+                {ESD_CODES.map((c) => <option key={c} value={c}>{ESD_BY_CODE[c]}</option>)}
+              </select>
+            </>
+          )}
           <label>{L.noLabel}</label>
           <input value={form.no} onChange={set('no')} />
           <label>Date</label>
@@ -96,10 +106,11 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
             <b>Conflict: {conflict.message}</b>
             <div className="table-scroll" style={{ marginTop: 8 }}>
               <table className="report-table">
-                <thead><tr><th>Date</th><th>1-Ph</th><th>3-Ph</th></tr></thead>
+                <thead><tr>{L.esd && <th>ESD</th>}<th>Date</th><th>1-Ph</th><th>3-Ph</th></tr></thead>
                 <tbody>
                   {conflict.existing.map((p) => (
                     <tr key={p.id}>
+                      {L.esd && <td>{ESD_BY_CODE[p.esd_code] || p.esd_code}</td>}
                       <td>{String(p[L.dateCol]).slice(0, 10)}</td>
                       <td>{p.ph1}</td><td>{p.ph3}</td>
                     </tr>
@@ -120,7 +131,7 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
             <table className="report-table">
               <thead>
                 <tr>
-                  <th>Date</th><th>{L.noLabel}</th>{L.link && <th>Requisition</th>}
+                  <th>Date</th>{L.esd && <th>ESD</th>}<th>{L.noLabel}</th>{L.link && <th>Requisition</th>}
                   <th>1-Ph</th><th>3-Ph</th><th>Note</th><th></th>
                 </tr>
               </thead>
@@ -128,7 +139,8 @@ export default function LedgerManager({ type, rows, today, fyLabel, reqNumbers =
                 {rows.map((p) => (
                   <tr key={p.id}>
                     <td>{String(p[L.dateCol]).slice(0, 10)}</td>
-                                        <td style={{ textAlign: 'left' }}>{p[L.noCol]}</td>
+                    {L.esd && <td style={{ textAlign: 'left' }}>{ESD_BY_CODE[p.esd_code] || p.esd_code}</td>}
+                    <td style={{ textAlign: 'left' }}>{p[L.noCol]}</td>
                     {L.link && <td style={{ textAlign: 'left' }}>{p.req_no || ''}</td>}
                     <td>{p.ph1}</td><td>{p.ph3}</td>
                     <td style={{ textAlign: 'left' }}>{p.note || ''}</td>

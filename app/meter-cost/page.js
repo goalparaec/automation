@@ -1,9 +1,9 @@
 import { getDepositsForFy, listPrs } from '../../lib/meterCostDb';
 import { buildDepositSummary, buildPrStatus, fyStartOf, fyLabel } from '../../lib/meterCostCore';
 import { StatusTable, MonthlyTable, QuarterlyTable } from './MeterCostTables';
-import { CircleHqTable } from './HqTables';
+import { CircleHqTable, IssueStatusTable } from './HqTables';
 import { loadHq } from '../../lib/meterCostHqDb';
-import { buildHqStatus } from '../../lib/meterCostHq';
+import { buildHqStatus, buildIssueStatus } from '../../lib/meterCostHq';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -20,12 +20,17 @@ export default async function MeterCostPage({ searchParams }) {
   let summary = null;
   let status = null;
   let hq = null;
+  let issueStatus = null;
   let error = null;
   try {
     const [deposits, prs] = await Promise.all([getDepositsForFy(fy), listPrs(fy)]);
     summary = buildDepositSummary(deposits, fy);
     status = buildPrStatus(deposits, prs, fy);
-    try { hq = buildHqStatus({ deposits, ...(await loadHq(fy)), prs, fyStart: fy }); } catch { hq = null; }
+    try {
+      const lists = await loadHq(fy);
+      hq = buildHqStatus({ deposits, reqs: lists.reqs, supplies: lists.supplies, prs, issues: lists.issues, fyStart: fy });
+      issueStatus = buildIssueStatus({ prs, issues: lists.issues, fyStart: fy });
+    } catch { hq = null; issueStatus = null; }
   } catch (err) {
     error = err.message;
   }
@@ -46,7 +51,7 @@ export default async function MeterCostPage({ searchParams }) {
         <div className="field-row">
           <a className="btn" href="/meter-cost/upload">Upload deposit files</a>
           <a className="btn" href="/meter-cost/pr">Add / view PR</a>
-          <a className="btn" href={`/meter-cost/hq?fy=${fy}`}>HQ requisition, supply, issue</a>
+          <a className="btn" href={`/meter-cost/hq?fy=${fy}`}>Issue Register, HQ requisition, supply</a>
           <a className="btn secondary" href={`/meter-cost/records?fy=${fy}`}>Records</a>
           <a className="btn secondary" href={`/api/meter-cost/export?fy=${fy}`}>Download Excel</a>
         </div>
@@ -60,12 +65,22 @@ export default async function MeterCostPage({ searchParams }) {
       {summary && (
         <>
           <div className="card">
-            <h2>Deposits vs PR (issued to ESD)</h2>
+            <h2>Deposits vs PR</h2>
             <p style={{ color: "#6b7280", fontSize: 13 }}>
-              Pending PR = deposits received but no PR entered yet. Advance PR = PR entered ahead of deposits. A PR is also the issue to the ESD.
+              Pending PR = deposits received but no PR entered yet. Advance PR = PR entered ahead of deposits.
             </p>
             <StatusTable status={status} />
           </div>
+          {issueStatus && (
+            <div className="card">
+              <h2>PR vs Issue Register</h2>
+              <p style={{ color: "#6b7280", fontSize: 13 }}>
+                PR to be raised = meters issued to the ESD beyond its PRs. Yet to be issued = PRs raised but meters not issued yet.
+                Issues are entered in the <a href={`/meter-cost/hq?fy=${fy}`}>Issue Register</a>.
+              </p>
+              <IssueStatusTable issueStatus={issueStatus} />
+            </div>
+          )}
           {hq && (
             <>
               <div className="card">

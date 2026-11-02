@@ -4,7 +4,7 @@ const red = (v) => (v ? { color: '#b91c1c', fontWeight: 700 } : null);
 const green = (v) => (v ? { color: '#15803d', fontWeight: 700 } : null);
 
 export function CircleHqTable({ circle }) {
-  const groups = ['Deposited', 'Requisition to HQ', 'Received from HQ', 'Pending from HQ', 'Advance received', 'Issued to ESDs (PR)', 'Stock in hand'];
+  const groups = ['Deposited', 'Requisition to HQ', 'Received from HQ', 'Pending from HQ', 'Advance received', 'Issued to ESDs (Issue Register)', 'Stock in hand'];
   const f = (r) => [[r.dep1, r.dep3], [r.req1, r.req3], [r.sup1, r.sup3], [r.pend1, r.pend3], [r.adv1, r.adv3], [r.iss1, r.iss3], [r.stock1, r.stock3]];
   const style = (g, v) => (g === 3 ? red(v) : g === 4 ? green(v) : g === 6 && v < 0 ? red(v) : null);
   return (
@@ -56,6 +56,36 @@ export function RequisitionTable({ hq }) {
               <td>-</td><td>-</td><td>-</td><td>-</td>
             </tr>
           ) : null}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// PR raised vs the Issue Register, per ESD (1-Ph / 3-Ph totals).
+export function IssueStatusTable({ issueStatus }) {
+  const rows = [...issueStatus.rows, issueStatus.total];
+  const groups = ['PR raised', 'Issued (Issue Register)', 'PR to be raised (issued ahead of PR)', 'Yet to be issued (PR raised)'];
+  return (
+    <div className="table-scroll">
+      <table className="report-table">
+        <thead>
+          <tr>
+            <th rowSpan={2} style={th}>ESD</th>
+            {groups.map((g) => <th key={g} colSpan={2} style={th}>{g}</th>)}
+          </tr>
+          <tr>{groups.flatMap((g) => ['1-Ph', '3-Ph'].map((h) => <th key={g + h} style={th}>{h}</th>))}</tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.esd} className={r === issueStatus.total ? 'total-row' : ''}>
+              <td style={{ textAlign: 'left' }}>{r.esd}</td>
+              <td>{r.pr1}</td><td>{r.pr3}</td>
+              <td>{r.iss1}</td><td>{r.iss3}</td>
+              <td style={red(r.toRaise1)}>{r.toRaise1}</td><td style={red(r.toRaise3)}>{r.toRaise3}</td>
+              <td style={green(r.toIssue1)}>{r.toIssue1}</td><td style={green(r.toIssue3)}>{r.toIssue3}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

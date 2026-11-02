@@ -5,7 +5,7 @@ import { getDepositsForFy, listPrs } from '../../../../lib/meterCostDb.js';
 import { buildDepositSummary, buildPrStatus } from '../../../../lib/meterCostCore.js';
 import { buildMeterCostWorkbook } from '../../../../lib/meterCostExcelExport.js';
 import { loadHq } from '../../../../lib/meterCostHqDb.js';
-import { buildHqStatus } from '../../../../lib/meterCostHq.js';
+import { buildHqStatus, buildIssueStatus } from '../../../../lib/meterCostHq.js';
 import { xlsxResponse, xlsxError } from '../../../../lib/xlsxResponse.js';
 
 export async function GET(request) {
@@ -17,11 +17,13 @@ export async function GET(request) {
     const status = buildPrStatus(deposits, prs, fy);
     let hq = null;
     let lists = null;
+    let issueStatus = null;
     try {
       lists = await loadHq(fy);
-      hq = buildHqStatus({ deposits, ...lists, prs, fyStart: fy });
-    } catch { hq = null; lists = null; }
-    const wb = await buildMeterCostWorkbook({ summary, status, prs, hq, lists });
+      hq = buildHqStatus({ deposits, reqs: lists.reqs, supplies: lists.supplies, prs, issues: lists.issues, fyStart: fy });
+      issueStatus = buildIssueStatus({ prs, issues: lists.issues, fyStart: fy });
+    } catch { hq = null; lists = null; issueStatus = null; }
+    const wb = await buildMeterCostWorkbook({ summary, status, prs, hq, lists, issueStatus });
     return xlsxResponse(wb, `Meter_Cost_Record_FY_${summary.label}.xlsx`);
   } catch (err) {
     return xlsxError(err);

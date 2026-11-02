@@ -3,7 +3,7 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import { listLedger, findByNumber, addLedger, updateLedger, deleteLedger } from '../../../../lib/meterCostHqDb.js';
 import { LEDGERS } from '../../../../lib/meterCostHq.js';
-import { toIsoDate } from '../../../../lib/meterCostCore.js';
+import { toIsoDate, ESD_BY_CODE } from '../../../../lib/meterCostCore.js';
 
 const bad = (message, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -29,15 +29,19 @@ export async function POST(request) {
   if (!no) return bad(`${L.noLabel} is required.`);
   if (!date) return bad('Date is required.');
   if (ph1 + ph3 === 0) return bad('Enter a 1-phase or 3-phase count.');
+  const esdCode = String(b.esd_code ?? '').trim();
+  if (L.esd && !ESD_BY_CODE[esdCode]) return bad('Choose the ESD.');
 
   try {
     if (!b.force && !b.id) {
-      const existing = await findByNumber(b.type, no);
+      let existing = await findByNumber(b.type, no);
+      if (L.esd) existing = existing.filter((e) => e.esd_code === esdCode); // an issue no can repeat across ESDs
       if (existing.length > 0) {
         return NextResponse.json({ conflict: true, message: `${L.noLabel} ${no} is already saved.`, existing }, { status: 409 });
       }
     }
     const row = { [L.noCol]: no, [L.dateCol]: date, ph1, ph3, note: String(b.note ?? '').slice(0, 200) || null };
+    if (L.esd) row.esd_code = esdCode;
     if (L.link) row.req_no = String(b.req_no ?? '').trim() || null;
     if (b.id) return NextResponse.json({ ok: true, row: await updateLedger(b.type, b.id, row) });
     return NextResponse.json({ ok: true, row: await addLedger(b.type, row) });

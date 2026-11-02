@@ -67,7 +67,7 @@ export default function PrManager({ prs, today, fyLabel }) {
       <div className="card">
         <h1>PR (purchase requisition)</h1>
         <p style={{ color: '#6b7280', fontSize: 13 }}>
-          Enter each PR for an ESD. A PR is also the issue of those meters to the ESD. Use Edit on a row to change it later.
+          Enter each PR for an ESD. Meters actually issued to the ESD are entered separately in the Issue Register. Use Edit on a row to change it later.
         </p>
         <div className="field-row">
           <label>ESD</label>

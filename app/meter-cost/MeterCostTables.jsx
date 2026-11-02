@@ -4,7 +4,7 @@ const th = { whiteSpace: 'normal', textAlign: 'center' };
 
 export function StatusTable({ status }) {
   const rows = [...status.rows, status.total];
-  const groups = ['New connection', 'Replacement', 'Total deposited', 'PR / issued', 'Pending PR', 'Advance PR'];
+  const groups = ['New connection', 'Replacement', 'Total deposited', 'PR raised', 'Pending PR', 'Advance PR'];
   const red = (v) => (v ? { color: '#b91c1c', fontWeight: 700 } : null);
   const green = (v) => (v ? { color: '#15803d', fontWeight: 700 } : null);
   return (
@@ -14,7 +14,7 @@ export function StatusTable({ status }) {
           <tr>
             <th rowSpan={2} style={th}>ESD</th>
             <th colSpan={6} style={th}>Deposited</th>
-            <th colSpan={6} style={th}>Against PR (issued to ESD)</th>
+            <th colSpan={6} style={th}>Against PR</th>
           </tr>
           <tr>
             {groups.map((g) => <th key={g} colSpan={2} style={th}>{g}</th>)}

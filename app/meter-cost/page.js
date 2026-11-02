@@ -25,9 +25,10 @@ export default async function MeterCostPage({ searchParams }) {
   try {
     const [deposits, prs] = await Promise.all([getDepositsForFy(fy), listPrs(fy)]);
     summary = buildDepositSummary(deposits, fy);
-    status = buildPrStatus(deposits, prs, fy);
+    let lists = { issues: [] };
+    try { lists = await loadHq(fy); } catch { /* HQ tables missing */ }
+    status = buildPrStatus(deposits, lists.issues || [], fy);
     try {
-      const lists = await loadHq(fy);
       hq = buildHqStatus({ deposits, reqs: lists.reqs, supplies: lists.supplies, prs, issues: lists.issues, fyStart: fy });
       issueStatus = buildIssueStatus({ prs, issues: lists.issues, fyStart: fy });
     } catch { hq = null; issueStatus = null; }
@@ -65,9 +66,9 @@ export default async function MeterCostPage({ searchParams }) {
       {summary && (
         <>
           <div className="card">
-            <h2>Deposits vs PR</h2>
+            <h2>Deposits vs Issue</h2>
             <p style={{ color: "#6b7280", fontSize: 13 }}>
-              Pending PR = deposits received but no PR entered yet. Advance PR = PR entered ahead of deposits.
+              Pending issue = deposits received but meters not yet issued (Issue Register). Advance issue = meters issued ahead of deposits.
             </p>
             <StatusTable status={status} />
           </div>

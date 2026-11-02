@@ -1,6 +1,7 @@
 import PrManager from './PrManager';
 import { getDepositsForFy, listPrs } from '../../../lib/meterCostDb';
 import { buildPrStatus, fyStartOf, fyLabel } from '../../../lib/meterCostCore';
+import { loadHq } from '../../../lib/meterCostHqDb';
 import { StatusTable } from '../MeterCostTables';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +16,9 @@ export default async function PrPage({ searchParams }) {
   try {
     const [deposits, list] = await Promise.all([getDepositsForFy(fy), listPrs(fy)]);
     prs = list;
-    status = buildPrStatus(deposits, list, fy);
+    let issues = [];
+    try { issues = (await loadHq(fy)).issues || []; } catch { /* HQ tables missing */ }
+    status = buildPrStatus(deposits, issues, fy);
   } catch (err) {
     error = err.message;
   }
@@ -25,9 +28,9 @@ export default async function PrPage({ searchParams }) {
       {error && <div className="card"><p className="status error">Could not read the data: {error}</p></div>}
       {status && (
         <div className="card">
-          <h2>Deposits vs PR - FY {fyLabel(fy)}</h2>
+          <h2>Deposits vs Issue - FY {fyLabel(fy)}</h2>
           <p style={{ color: '#6b7280', fontSize: 13 }}>
-            Updates automatically every time a PR or a deposit file is added.
+            Updates automatically every time an issue or a deposit file is added.
           </p>
           <StatusTable status={status} />
         </div>

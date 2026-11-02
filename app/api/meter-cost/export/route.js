@@ -14,12 +14,13 @@ export async function GET(request) {
   try {
     const [deposits, prs] = await Promise.all([getDepositsForFy(fy), listPrs(fy)]);
     const summary = buildDepositSummary(deposits, fy);
-    const status = buildPrStatus(deposits, prs, fy);
     let hq = null;
     let lists = null;
     let issueStatus = null;
+    let status = buildPrStatus(deposits, [], fy);
     try {
       lists = await loadHq(fy);
+      status = buildPrStatus(deposits, lists.issues || [], fy);
       hq = buildHqStatus({ deposits, reqs: lists.reqs, supplies: lists.supplies, prs, issues: lists.issues, fyStart: fy });
       issueStatus = buildIssueStatus({ prs, issues: lists.issues, fyStart: fy });
     } catch { hq = null; lists = null; issueStatus = null; }

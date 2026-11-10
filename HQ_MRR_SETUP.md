@@ -5,16 +5,28 @@ Builds HQ's BE / CE figures for the 5 ESDs and the circle from the **category-wi
 
 ## One-time setup
 1. Supabase -> SQL editor -> run **schema_hq_mrr.sql** (safe to re-run; creates 3 new tables, touches nothing else).
+   Then run **schema_hq_mrr_solar.sql** (one more table, for the Solar Unit Adjustment).
 2. Deploy the files (see the file list at the end). No new packages are needed.
 
 ## Each month
 1. Open **HQ MRR -> Upload MRR files**, pick the MRR month.
 2. Choose the commercial MRR file against each ESD (you can do one ESD at a time; a new file replaces the old one).
 3. Choose the circle's **IRCA ESD-wise MRR** once (the file with ESD codes 000-042+). Its Unit Billed for ESD codes 038-042 (Dhupdhara, Dudhnoi, Goalpara, Lakhipur, Mankachar) is added to each ESD's units for Billing Efficiency. Nothing is typed by hand.
-4. Energy injection is taken from the **Monthly Inputs** page - it must be entered there for the same month.
-5. Save. Open **HQ MRR** to see the circle table, each ESD's summary and the category-wise table.
+4. Choose each ESD's **consumer-wise MRR** (the "Consumer-wise MRR file (solar)" column). The browser reads the file, totals its **Solar Unit Adjustment** column over all consumers and saves only that total (kWh). A file with no Solar column, or with two Solar columns it cannot tell apart, is refused and nothing is saved.
+5. Energy injection is taken from the **Monthly Inputs** page - it must be entered there for the same month.
+6. Save. Open **HQ MRR** to see the circle table, each ESD's summary and the category-wise table.
    **Download Excel** gives: Circle Summary, ESD Summary, Category - Circle, one category-wise sheet per ESD (each with a Short twin),
    and "MRR (HQ format)" (all 5 ESDs in HQ's ESD MRR layout, energy in MU and money in Rs lakhs).
+
+## Solar Unit Adjustment and Financial Year
+- **Injection used for Billing Efficiency = metered injection (Monthly Inputs) + Solar Unit Adjustment.** The summary shows three columns: Energy injected, Solar unit adjustment, Injection + solar adjustment.
+- Nothing is stored as a finished BE: every figure is worked out from the saved rows each time the page opens. **Earlier months therefore correct themselves** - upload that month's consumer-wise MRRs (pick the earlier month on the upload page) and its BE, AT&C loss and ARR change at once. Until then the page says which ESDs have no solar figure and treats it as zero.
+- **Financial Year (April to the month you opened)** is shown under the monthly summary and in Excel ("FY Circle Summary", "FY ESD Summary"). It is added up over the months, never an average of monthly percentages:
+  - FY BE = sum of billed units (ESD + IRCA) / sum of (injection + solar adjustment)
+  - FY CE = sum of grand total collection / sum of current demand
+  - FY AT&C loss = 1 - FY BE x FY CE; FY average billing rate = sum of current demand / sum of ESD units; FY ARR = BE x CE x ABR; Required for 100% CE = FY current demand - FY grand collection
+  - A month whose injection is not entered is left out of the BE (units and injection together) but stays in CE; the page lists such months.
+  - Month-end positions (arrears, consumer counts, defaulters, days receivable, connected load) are not shown for the year - they are not additive.
 
 ## Short versions, printing and images
 - Every report has a **short** version beside the full one. On the page use **Show short version**; in the Excel each full sheet has a "(Short)" twin.
@@ -30,7 +42,7 @@ Builds HQ's BE / CE figures for the 5 ESDs and the circle from the **category-wi
 - The file's own totals are checked (Total Demand, Total Collection, Grand Total Collection) and any mismatch is shown.
 
 ## Formulas (same as HQ's circle sheets)
-- Billing efficiency = (ESD units + IRCA units) / energy injected
+- Billing efficiency = (ESD units + IRCA units) / (energy injected + Solar Unit Adjustment)
 - Collection efficiency = Grand total collection / Current demand (ESD only, IRCA excluded)
 - Total current collection = Current collection + Govt adjustment + Non cash + Govt subsidy + Tariff adjustment
 - Grand total collection = Total current collection + Arrear collection
@@ -41,8 +53,8 @@ Builds HQ's BE / CE figures for the 5 ESDs and the circle from the **category-wi
 - Required for 100% CE = Current demand - Grand total collection (negative = already above 100%)
 
 ## Files
-- schema_hq_mrr.sql
+- schema_hq_mrr.sql, schema_hq_mrr_solar.sql
 - lib/hqMrrCore.js, hqMrrColumns.js, hqMrrTrim.js, hqMrrDb.js, hqMrrExcelExport.js, hqMrrCore.test.mjs
 - app/hq-mrr/page.js, HqTables.jsx, DownloadImageButton.jsx, upload/page.js, upload/HqMrrUpload.jsx
-- app/api/hq-mrr/upload/route.js, app/api/hq-mrr/excel/route.js
+- app/api/hq-mrr/upload/route.js, app/api/hq-mrr/solar/route.js, app/api/hq-mrr/excel/route.js
 - app/layout.js (adds the "HQ MRR" menu link)

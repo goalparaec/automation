@@ -1,6 +1,6 @@
-import { loadReportInputs, listMrrMonths } from '../../lib/hqMrrDb';
-import { buildHqMrrReport, monthName, ESDS } from '../../lib/hqMrrCore';
-import { SUMMARY_COLS, CATEGORY_COLS, SUMMARY_SECTIONS, CATEGORY_SECTIONS, fmtValue } from '../../lib/hqMrrColumns';
+import { loadReportInputs, loadFyInputs, listMrrMonths } from '../../lib/hqMrrDb';
+import { buildHqMrrReport, buildFyReport, monthName, ESDS } from '../../lib/hqMrrCore';
+import { SUMMARY_COLS, CATEGORY_COLS, SUMMARY_SECTIONS, CATEGORY_SECTIONS, FY_COLS, FY_SECTIONS, fmtValue } from '../../lib/hqMrrColumns';
 import { trimSummaryCols, trimCategoryCols, keepNonEmpty } from '../../lib/hqMrrTrim';
 import { StackedTables, SummaryList } from './HqTables';
 import DownloadImageButton from './DownloadImageButton';
@@ -33,10 +33,12 @@ export default async function HqMrrPage({ searchParams }) {
   const view = [...ESDS, 'circle'].includes(searchParams?.view) ? searchParams.view : 'circle';
 
   let report = null;
+  let fy = null;
   if (month && !error) {
     try {
       const inputs = await loadReportInputs(month);
       report = buildHqMrrReport({ month, ...inputs });
+      fy = buildFyReport({ month, monthly: await loadFyInputs(month) });
     } catch (err) {
       error = err.message;
     }
@@ -72,7 +74,7 @@ export default async function HqMrrPage({ searchParams }) {
         )}
         {error && (
           <p className="status error">
-            Could not read the data: {error}. If this is the first time, run schema_hq_mrr.sql in the Supabase SQL editor.
+            Could not read the data: {error}. If this is the first time, run schema_hq_mrr.sql and schema_hq_mrr_solar.sql in the Supabase SQL editor.
           </p>
         )}
         {!error && months.length === 0 && <p>No MRR has been uploaded yet.</p>}
@@ -83,6 +85,12 @@ export default async function HqMrrPage({ searchParams }) {
           <p className="status error">
             The IRCA MRR is not uploaded for {monthName(month)} - Billing efficiency does not include IRCA units until it is.{' '}
             <a href={`/hq-mrr/upload?month=${month.slice(0, 7)}`}>Upload it</a>.
+          </p>
+        )}
+        {report && report.missingSolar.length > 0 && (
+          <p className="status error">
+            Consumer-wise MRR (solar unit adjustment) is not uploaded for {report.missingSolar.join(', ')} in {monthName(month)} - Billing efficiency treats the
+            solar adjustment as zero until it is. <a href={`/hq-mrr/upload?month=${month.slice(0, 7)}`}>Upload it</a>.
           </p>
         )}
         {report && report.missingInjection.length > 0 && (
@@ -149,6 +157,43 @@ export default async function HqMrrPage({ searchParams }) {
               </>
             )}
           </div>
+
+          {fy?.circle && (
+            <div className="card">
+              <h2 style={{ marginTop: 0 }}>Financial Year {fy.fyLabel} (April to {monthName(month)})</h2>
+              <p style={{ color: '#6b7280', fontSize: 13 }}>
+                Added up over {fy.months.length} month(s) ({fy.periodLabel}). Billing efficiency = billed units / (injection + solar unit adjustment);
+                Collection efficiency = grand total collection / current demand - both on the year&apos;s totals, not an average of monthly percentages.
+                Month-end positions (arrears, consumer counts, days receivable) are not part of the Financial Year figures.
+              </p>
+              {fy.missingInjection.length > 0 && (
+                <p className="status error">
+                  Injection is missing for {fy.missingInjection.map((x) => `${x.esd} (${monthName(x.month)})`).join(', ')} - those months are left out of the Billing efficiency.
+                </p>
+              )}
+              {fy.missingSolar.length > 0 && (
+                <p className="status error">
+                  Consumer-wise MRR (solar) is missing for {fy.missingSolar.map((x) => `${x.esd} (${monthName(x.month)})`).join(', ')} - solar adjustment counted as zero for those months.
+                </p>
+              )}
+              <div className="field-row">
+                <DownloadImageButton targetId="img-fy" fileName={`HQ_MRR_FY_${fy.fyLabel}_${tag}.png`} />
+              </div>
+              <div id="img-fy" style={IMG_BOX}>
+                <div className="report-title">Goalpara Electrical Circle - Financial Year {fy.fyLabel} ({fy.periodLabel})</div>
+                <StackedTables
+                  lead={['ESD']}
+                  cols={FY_COLS}
+                  sections={FY_SECTIONS}
+                  max={12}
+                  rows={[
+                    ...fy.esds.filter((e) => e.present).map((e) => ({ label: e.name, values: e.summary })),
+                    { label: 'Goalpara Circle', values: fy.circle.summary, total: true },
+                  ]}
+                />
+              </div>
+            </div>
+          )}
 
           {(view === 'circle' || esd?.present) && (
             <div className="card">

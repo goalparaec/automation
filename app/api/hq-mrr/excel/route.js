@@ -4,8 +4,8 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
-import { loadReportInputs } from '../../../../lib/hqMrrDb.js';
-import { buildHqMrrReport, monthName } from '../../../../lib/hqMrrCore.js';
+import { loadReportInputs, loadFyInputs } from '../../../../lib/hqMrrDb.js';
+import { buildHqMrrReport, buildFyReport, monthName } from '../../../../lib/hqMrrCore.js';
 import { buildHqMrrWorkbook } from '../../../../lib/hqMrrExcelExport.js';
 import { xlsxResponse, xlsxError } from '../../../../lib/xlsxResponse.js';
 
@@ -16,7 +16,8 @@ export async function GET(request) {
     const inputs = await loadReportInputs(month);
     const report = buildHqMrrReport({ month, ...inputs });
     if (!report.circle) throw new Error(`No MRR files are saved for ${monthName(month)}.`);
-    const wb = await buildHqMrrWorkbook(report);
+    const fy = buildFyReport({ month, monthly: await loadFyInputs(month) });
+    const wb = await buildHqMrrWorkbook(report, fy);
     return await xlsxResponse(wb, `HQ_MRR_Goalpara_Circle_${monthName(month).replace(' ', '_')}.xlsx`);
   } catch (err) {
     return xlsxError(err);

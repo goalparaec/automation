@@ -1,5 +1,5 @@
 import HqMrrUpload from './HqMrrUpload';
-import { getInjection, getIrca, getUploads } from '../../../lib/hqMrrDb';
+import { getInjection, getIrca, getUploads, getSolar } from '../../../lib/hqMrrDb';
 import { monthName } from '../../../lib/hqMrrCore';
 
 export const dynamic = 'force-dynamic';
@@ -19,10 +19,11 @@ export default async function HqMrrUploadPage({ searchParams }) {
   let injection = {};
   let irca = { units: {}, fileName: null };
   let uploads = {};
+  let solar = { units: {}, info: {} };
   let error = null;
   try {
     let ircaInfo;
-    [injection, ircaInfo, uploads] = await Promise.all([getInjection(month), getIrca(month), getUploads(month)]);
+    [injection, ircaInfo, uploads, solar] = await Promise.all([getInjection(month), getIrca(month), getUploads(month), getSolar(month)]);
     irca = ircaInfo;
   } catch (err) {
     error = err.message;
@@ -37,10 +38,10 @@ export default async function HqMrrUploadPage({ searchParams }) {
       </form>
       {error && (
         <p className="status error">
-          Could not read the saved data: {error}. If this is the first time, run schema_hq_mrr.sql in the Supabase SQL editor.
+          Could not read the saved data: {error}. If this is the first time, run schema_hq_mrr.sql and schema_hq_mrr_solar.sql in the Supabase SQL editor.
         </p>
       )}
-      <HqMrrUpload month={m} injection={injection} irca={irca} uploads={uploads} />
+      <HqMrrUpload month={m} injection={injection} irca={irca} uploads={uploads} solar={solar} />
     </div>
   );
 }

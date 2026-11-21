@@ -8,9 +8,15 @@ create table if not exists watchlists (
   name text not null unique,
   source_file text,
   consumer_count integer not null default 0,
+  as_on_date date,          -- the date the uploaded list's balances are "as on"
+  criteria_text text,       -- e.g. "with negative balance less than -10K" (used in the report title)
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- If the table already exists from the first version of this file, add the new columns.
+alter table watchlists add column if not exists as_on_date date;
+alter table watchlists add column if not exists criteria_text text;
 
 -- The consumers on a list. listed_on / listed_balance / base_pay_* are the
 -- "before" picture (what the list file said on the day the consumer was

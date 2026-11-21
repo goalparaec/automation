@@ -3,8 +3,9 @@
 import { useMemo, useState } from 'react';
 import {
   esdOverviewRows, categoryEsdMatrix, MATRIX_ORDER, trendRows, rowStatus, esdLabelOf, esdsMissingFromFiles,
-  totalsOf, fmtDateDMY,
+  totalsOf, fmtDateDMY, withToday, progressReport,
 } from '../../../../lib/watchlistCore';
+import { renderProgressPng, downloadBlob } from '../../../../lib/watchlistProgressImage';
 
 // ---------------------------------------------------------------------------
 // Formatting
@@ -89,13 +90,54 @@ function ShowMore({ visible, total, onMore }) {
 // Tabs
 // ---------------------------------------------------------------------------
 const TABS = [
+  ['progress', 'Progress Report'],
   ['summary', 'Summary'],
+  ['today', 'Paid today'],
   ['paid', 'Paid since last check'],
   ['ever', 'Paid since listing'],
   ['notpaid', 'Not paid'],
   ['notfound', 'Not in billing file'],
   ['trend', 'Daily trend'],
 ];
+
+function ProgressTab({ rows, esdMap, reportDate, asOnDate, criteria, listName }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const report = useMemo(
+    () => progressReport({ rows, reportDate, asOnDate, criteria, esdMap }),
+    [rows, reportDate, asOnDate, criteria, esdMap],
+  );
+
+  async function downloadImage() {
+    setBusy(true); setErr('');
+    try {
+      const blob = await renderProgressPng(report, { scale: 2 });
+      const safe = String(listName || 'List').replace(/[^A-Za-z0-9 _-]/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'List';
+      downloadBlob(blob, `Progress-Report-${safe}-${fmtDateDMY(reportDate)}.png`);
+    } catch (e) {
+      setErr(e.message || 'Could not create the image.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const cols = report.columns.map((c, i) => ({
+    header: c.header,
+    render: (r) => r.display[i],
+    left: c.key === 'esd',
+    num: c.kind === 'lakh' || (c.kind === 'int' && c.key !== 'sl'),
+  }));
+  return (
+    <div>
+      <div className="no-print" style={{ marginBottom: 12 }}>
+        <button className="btn" onClick={downloadImage} disabled={busy}>{busy ? 'Creating image…' : 'Download image (PNG)'}</button>
+        {err && <span className="status error" style={{ marginLeft: 10 }}>{err}</span>}
+      </div>
+      <h3 className="wl-h" style={{ textAlign: 'center', fontSize: 17, color: '#111' }}>{report.title}</h3>
+      <DataTable columns={cols} rows={report.rows} />
+    </div>
+  );
+}
 
 function SummaryTab({ rows, esdMap }) {
   const overview = useMemo(() => esdOverviewRows(rows, esdMap), [rows, esdMap]);
@@ -108,13 +150,15 @@ function SummaryTab({ rows, esdMap }) {
     { header: 'Consumers on list', render: (r) => int(r.listed), num: true },
     { header: 'Found in billing files', render: (r) => int(r.inFile), num: true },
     { header: 'Not found', render: (r) => int(r.notInFile), num: true },
+    { header: 'Paid today (consumers)', render: (r) => int(r.todayN), num: true },
+    { header: 'Amount realized today (Rs)', render: (r) => money(r.todayAmt), num: true },
     { header: 'Paid since last check (consumers)', render: (r) => int(r.paidN), num: true },
     { header: '% of found who paid', render: (r) => (r.inFile ? pct(r.paidPct) : '-'), num: true },
     { header: 'Amount realized since last check (Rs)', render: (r) => money(r.paidAmt), num: true },
     { header: 'Paid since listing (consumers)', render: (r) => int(r.cumN), num: true },
     { header: 'Amount realized since listing (Rs)', render: (r) => money(r.cumAmt), num: true },
     { header: 'Negative balance when listed (Rs Lakh)', render: (r) => lakhs(r.listedNeg), num: true },
-    { header: 'Balance now of found consumers (Rs Lakh)', render: (r) => (r.inFile ? lakhs(r.balanceNow) : '-'), num: true },
+    { header: 'Balance now of listed consumers (Rs Lakh)', render: (r) => lakhs(r.balanceNow), num: true },
   ];
   return (
     <div>
@@ -149,7 +193,8 @@ function ConsumerTab({ rows, esdMap, kind }) {
 
   const base = useMemo(() => {
     let list;
-    if (kind === 'paid') list = rows.filter((r) => r.newPayment).sort((a, b) => b.paidAmount - a.paidAmount || a.consumerNo.localeCompare(b.consumerNo));
+    if (kind === 'today') list = rows.filter((r) => r.paidToday).sort((a, b) => b.todayAmount - a.todayAmount || a.consumerNo.localeCompare(b.consumerNo));
+    else if (kind === 'paid') list = rows.filter((r) => r.newPayment).sort((a, b) => b.paidAmount - a.paidAmount || a.consumerNo.localeCompare(b.consumerNo));
     else if (kind === 'ever') list = rows.filter((r) => r.cumPaidCount > 0).sort((a, b) => b.cumPaidAmount - a.cumPaidAmount || a.consumerNo.localeCompare(b.consumerNo));
     else if (kind === 'notpaid') list = rows.filter((r) => rowStatus(r) !== 'NOT_IN_FILE' && r.cumPaidCount === 0).sort((a, b) => (a.balanceNow ?? 0) - (b.balanceNow ?? 0));
     else list = rows.filter((r) => rowStatus(r) === 'NOT_IN_FILE');
@@ -168,6 +213,7 @@ function ConsumerTab({ rows, esdMap, kind }) {
   const t = useMemo(() => totalsOf(filtered), [filtered]);
 
   const notes = {
+    today: 'Consumers whose last payment in the billing file is dated on the report date (payments made today only).',
     paid: 'Consumers whose Last Payment Date / Amount in today\'s billing file is newer than at the previous check.',
     ever: 'Every consumer who has paid at any check since being added to the list, with the total realized.',
     notpaid: 'Found in the billing files, but no payment seen since the consumer was listed.',
@@ -185,6 +231,7 @@ function ConsumerTab({ rows, esdMap, kind }) {
     { header: 'Balance when listed (Rs)', render: (r) => money(r.listedBalance), num: true },
     { header: 'Balance now (Rs)', render: (r) => (r.inFile ? money(r.balanceNow) : '-'), num: true },
     { header: 'Last payment date', render: (r) => fmtDateDMY(r.lastPaymentDate) || '-' },
+    { header: 'Paid today (Rs)', render: (r) => (r.paidToday ? money(r.todayAmount) : '-'), num: true },
     { header: 'Paid since last check (Rs)', render: (r) => (r.newPayment ? money(r.paidAmount) : '-'), num: true },
     { header: 'Total paid since listing (Rs)', render: (r) => (r.cumPaidAmount ? money(r.cumPaidAmount) : '-'), num: true },
     { header: 'Remarks', render: (r) => r.remarks || '', left: true },
@@ -208,6 +255,7 @@ function ConsumerTab({ rows, esdMap, kind }) {
       <div className="wl-chips">
         <span className="wl-chip">{int(filtered.length)} consumers</span>
         {kind !== 'notfound' && <span className="wl-chip">Balance when listed: Rs {lakhs(t.listedNeg)} Lakh</span>}
+        {kind === 'today' && <span className="wl-chip good">Realized today: Rs {money(t.todayAmt)}</span>}
         {kind === 'paid' && <span className="wl-chip good">Realized since last check: Rs {money(t.paidAmt)}</span>}
         {kind === 'ever' && <span className="wl-chip good">Realized since listing: Rs {money(t.cumAmt)}</span>}
       </div>
@@ -245,8 +293,9 @@ function TrendTab({ checks }) {
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
-export default function WatchlistView({ list, reportDate, header, rows, checks, esdMap }) {
-  const [tab, setTab] = useState('summary');
+export default function WatchlistView({ list, reportDate, asOnDate, criteria, header, rows: rawRows, checks, esdMap }) {
+  const [tab, setTab] = useState('progress');
+  const rows = useMemo(() => withToday(rawRows, reportDate), [rawRows, reportDate]);
   const total = useMemo(() => totalsOf(rows), [rows]);
   const missingEsds = useMemo(() => esdsMissingFromFiles(rows), [rows]);
   const dates = useMemo(() => checks.map((c) => c.report_date).sort().reverse(), [checks]);
@@ -269,6 +318,7 @@ export default function WatchlistView({ list, reportDate, header, rows, checks, 
       <div className="wl-chips">
         <span className="wl-chip">On list: {int(total.listed)}</span>
         <span className="wl-chip">Found in billing files: {int(total.inFile)}</span>
+        <span className="wl-chip good">Paid today: {int(total.todayN)} (Rs {money(total.todayAmt)})</span>
         <span className="wl-chip good">Paid since last check: {int(total.paidN)} (Rs {money(total.paidAmt)})</span>
         <span className="wl-chip good">Paid since listing: {int(total.cumN)} (Rs {money(total.cumAmt)})</span>
         {total.notInFile > 0 && <span className="wl-chip">Not found in files: {int(total.notInFile)}</span>}
@@ -286,7 +336,11 @@ export default function WatchlistView({ list, reportDate, header, rows, checks, 
         ))}
       </div>
 
+      {tab === 'progress' && (
+        <ProgressTab rows={rows} esdMap={esdMap} reportDate={reportDate} asOnDate={asOnDate} criteria={criteria} listName={list.name} />
+      )}
       {tab === 'summary' && <SummaryTab rows={rows} esdMap={esdMap} />}
+      {tab === 'today' && <ConsumerTab rows={rows} esdMap={esdMap} kind="today" />}
       {tab === 'paid' && <ConsumerTab rows={rows} esdMap={esdMap} kind="paid" />}
       {tab === 'ever' && <ConsumerTab rows={rows} esdMap={esdMap} kind="ever" />}
       {tab === 'notpaid' && <ConsumerTab rows={rows} esdMap={esdMap} kind="notpaid" />}

@@ -17,7 +17,10 @@ export async function GET(request, { params }) {
         status: 404, headers: { 'Content-Type': 'application/json' },
       });
     }
-    const wb = await buildWatchlistWorkbook({ list: check.list, reportDate: date, rows: check.rows, checks, esdMap });
+    const wb = await buildWatchlistWorkbook({
+      list: check.list, reportDate: date, rows: check.rows, checks, esdMap,
+      asOnDate: check.asOnDate || date, criteria: check.list.criteria_text || '',
+    });
     const safeName = String(check.list.name).replace(/[^A-Za-z0-9 _-]/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'List';
     return xlsxResponse(wb, `Watchlist-${safeName}-${dmy(date)}.xlsx`);
   } catch (err) {

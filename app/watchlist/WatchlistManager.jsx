@@ -31,6 +31,9 @@ export default function WatchlistManager({ initialLists }) {
   const [listName, setListName] = useState(initialLists && initialLists[0] ? initialLists[0].name : '');
   const [listMode, setListMode] = useState('replace');
   const [listFile, setListFile] = useState(null);
+  const [asOnDate, setAsOnDate] = useState(todayISO());
+  const [edits, setEdits] = useState({}); // per list: { asOn, criteria } being edited in the table
+  const [metaStatus, setMetaStatus] = useState('');
   const [listStatus, setListStatus] = useState('');
   const [listBusy, setListBusy] = useState(false);
 
@@ -57,6 +60,12 @@ export default function WatchlistManager({ initialLists }) {
   async function handleListUpload() {
     if (!listName.trim()) { setListStatus('Error: give the list a name.'); return; }
     if (!listFile) { setListStatus('Error: choose the Excel file with the consumer list.'); return; }
+    const existing = lists.find((l) => l.name === listName.trim());
+    if (existing && existing.as_on_date && existing.as_on_date !== asOnDate && existing.dates && existing.dates.length > 0
+      && !window.confirm(`The reference date changes from ${fmtDateDMY(existing.as_on_date)} to ${fmtDateDMY(asOnDate)}. `
+        + 'All saved daily checks of this list will be removed and you will need to upload the billing files again. Continue?')) {
+      return;
+    }
     setListBusy(true);
     setListStatus('Reading the file…');
     try {
@@ -74,9 +83,9 @@ export default function WatchlistManager({ initialLists }) {
       for (const c of parsed.consumers) byEsd[c.esdCode] = (byEsd[c.esdCode] || 0) + 1;
 
       setListStatus(`Found ${parsed.consumers.length.toLocaleString('en-IN')} consumers on sheet(s) ${parsed.readSheets.join(', ')}. Saving…`);
-      const start = await postJson('/api/watchlist/lists', { part: 'start', name: listName.trim(), sourceFile: listFile.name }, 'Could not start');
+      const start = await postJson('/api/watchlist/lists', { part: 'start', name: listName.trim(), sourceFile: listFile.name, asOnDate }, 'Could not start');
       const { listId, syncId } = start;
-      const listedOn = todayISO();
+      const listedOn = asOnDate; // the date the balances in this file are "as on"
       for (let off = 0; off < parsed.consumers.length; off += BATCH) {
         setListStatus(`Saving consumers (${Math.min(off + BATCH, parsed.consumers.length).toLocaleString('en-IN')}/${parsed.consumers.length.toLocaleString('en-IN')})…`);
         await postJson('/api/watchlist/lists', {
@@ -98,6 +107,30 @@ export default function WatchlistManager({ initialLists }) {
       setListStatus(`Error: ${err.message || 'Something went wrong while saving the list.'}`);
     } finally {
       setListBusy(false);
+    }
+  }
+
+  async function handleSaveMeta(l) {
+    const e = edits[l.id] || {};
+    const asOn = e.asOn !== undefined ? e.asOn : (l.as_on_date || '');
+    const criteria = e.criteria !== undefined ? e.criteria : (l.criteria_text || '');
+    if (asOn !== (l.as_on_date || '') && l.as_on_date && l.dates && l.dates.length > 0
+      && !window.confirm(`Changing the reference date from ${fmtDateDMY(l.as_on_date)} to ${fmtDateDMY(asOn)} removes all saved daily checks of "${l.name}" `
+        + '(cumulative figures start again from the new date). You will need to upload the billing files again. Continue?')) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/watchlist/lists', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: l.id, asOnDate: asOn || null, criteriaText: criteria }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setMetaStatus(`Saved "${l.name}".${data.clearedChecks ? ' Saved daily checks were removed; upload the billing files again.' : ''}`);
+      setEdits((prev) => { const n = { ...prev }; delete n[l.id]; return n; });
+      await refreshLists();
+    } catch (err) {
+      setMetaStatus(`Error: ${err.message}`);
     }
   }
 
@@ -181,13 +214,19 @@ export default function WatchlistManager({ initialLists }) {
         <h2>1. Consumer list</h2>
         <p style={{ fontSize: 13, color: '#6b7280', marginTop: 0 }}>
           Upload the Excel file with the consumers to track (any sheets; each needs a <b>Consumer No</b> column; the ESD is taken
-          from the first 3 digits). Upload the same list name again to update it — consumers already on it keep their original
-          &quot;before&quot; picture and past realization.
+          from the first 3 digits). The list stays fixed until you upload it again: the same name with Replace swaps it for the new
+          file, Add / update only adds to it. Consumers already on a list keep their original &quot;before&quot; balance and past realization.
         </p>
         <div className="field-row">
           <label>List name</label>
           <input
-            list="wl-names" value={listName} onChange={(e) => setListName(e.target.value)}
+            list="wl-names" value={listName}
+            onChange={(e) => {
+              const v = e.target.value;
+              setListName(v);
+              const hit = lists.find((l) => l.name === v.trim());
+              if (hit && hit.as_on_date) setAsOnDate(hit.as_on_date); // keep the list's saved reference date
+            }}
             placeholder="e.g. Negative balance more than 10K" style={{ minWidth: 300 }}
           />
           <datalist id="wl-names">{lists.map((l) => <option key={l.id} value={l.name} />)}</datalist>
@@ -195,6 +234,13 @@ export default function WatchlistManager({ initialLists }) {
         <div className="field-row">
           <label>Excel file</label>
           <input type="file" accept=".xls,.xlsx" onChange={(e) => setListFile((e.target.files || [])[0] || null)} />
+        </div>
+        <div className="field-row">
+          <label>Balances as on</label>
+          <input type="date" value={asOnDate} onChange={(e) => setAsOnDate(e.target.value)} />
+          <span style={{ fontSize: 13, color: '#6b7280' }}>
+            reference date: the balances in this file are as on this date, and every payment dated AFTER it is counted as realized
+          </span>
         </div>
         <div className="field-row">
           <label>If the list exists</label>
@@ -214,7 +260,7 @@ export default function WatchlistManager({ initialLists }) {
           <div style={{ marginTop: 16, overflowX: 'auto' }}>
             <table className="report-table" style={{ fontSize: 13 }}>
               <thead>
-                <tr><th>List</th><th>Consumers</th><th>ESD-wise</th><th>Last checked</th><th /></tr>
+                <tr><th>List</th><th>Consumers</th><th>ESD-wise</th><th>Balances as on</th><th>Report title text</th><th>Last checked</th><th /></tr>
               </thead>
               <tbody>
                 {lists.map((l) => (
@@ -223,6 +269,22 @@ export default function WatchlistManager({ initialLists }) {
                     <td>{l.consumer_count.toLocaleString('en-IN')}</td>
                     <td style={{ textAlign: 'left' }}>
                       {Object.entries(l.byEsd || {}).sort(([a], [b]) => a.localeCompare(b)).map(([c, n]) => `${esdLabelOf(c)} ${n}`).join(' · ')}
+                    </td>
+                    <td>
+                      <input
+                        type="date" value={edits[l.id]?.asOn !== undefined ? edits[l.id].asOn : (l.as_on_date || '')}
+                        onChange={(e) => setEdits((p) => ({ ...p, [l.id]: { ...p[l.id], asOn: e.target.value } }))}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={edits[l.id]?.criteria !== undefined ? edits[l.id].criteria : (l.criteria_text || '')}
+                        placeholder="with negative balance less than -10K" style={{ minWidth: 240 }}
+                        onChange={(e) => setEdits((p) => ({ ...p, [l.id]: { ...p[l.id], criteria: e.target.value } }))}
+                      />
+                      {edits[l.id] && (
+                        <button className="btn" style={{ padding: '3px 10px', fontSize: 12, marginLeft: 6 }} onClick={() => handleSaveMeta(l)}>Save</button>
+                      )}
                     </td>
                     <td>
                       {l.dates && l.dates.length > 0
@@ -236,6 +298,7 @@ export default function WatchlistManager({ initialLists }) {
                 ))}
               </tbody>
             </table>
+            {metaStatus && <div className={`status ${metaStatus.startsWith('Error') ? 'error' : 'success'}`}>{metaStatus}</div>}
           </div>
         )}
       </div>

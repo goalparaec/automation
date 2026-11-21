@@ -42,6 +42,8 @@ export default async function WatchlistReportPage({ params }) {
     <WatchlistView
       list={{ id: check.list.id, name: check.list.name }}
       reportDate={date}
+      asOnDate={check.asOnDate || date}
+      criteria={check.list.criteria_text || ''}
       header={{
         stale_warning: check.header.stale_warning, file_names: check.header.file_names,
         rows_in_files: check.header.rows_in_files, uploaded_at: check.header.uploaded_at,

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import {
-  listWatchlists, startListSync, appendListConsumers, finishListSync, deleteWatchlist,
+  listWatchlists, startListSync, appendListConsumers, finishListSync, deleteWatchlist, updateWatchlistMeta,
 } from '../../../../lib/watchlistDb';
 
 export const dynamic = 'force-dynamic';
@@ -30,7 +30,8 @@ export async function POST(request) {
   const { part } = body || {};
   try {
     if (part === 'start') {
-      const out = await startListSync({ name: body.name, sourceFile: body.sourceFile });
+      if (body.asOnDate && !DATE_RE.test(body.asOnDate)) return NextResponse.json({ error: 'asOnDate must be YYYY-MM-DD.' }, { status: 400 });
+      const out = await startListSync({ name: body.name, sourceFile: body.sourceFile, asOnDate: body.asOnDate });
       return NextResponse.json({ ok: true, ...out });
     }
     if (part === 'rows') {
@@ -51,6 +52,20 @@ export async function POST(request) {
   } catch (err) {
     console.error('Watchlist upload failed', err);
     return NextResponse.json({ error: err.message || 'Upload failed.' }, { status: 500 });
+  }
+}
+
+// PATCH { id, asOnDate?, criteriaText? } - change the "balances as on" date or the report-title text.
+export async function PATCH(request) {
+  let body;
+  try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 }); }
+  if (!body || !body.id) return NextResponse.json({ error: 'id is required.' }, { status: 400 });
+  if (body.asOnDate && !DATE_RE.test(body.asOnDate)) return NextResponse.json({ error: 'asOnDate must be YYYY-MM-DD.' }, { status: 400 });
+  try {
+    const out = await updateWatchlistMeta({ id: body.id, asOnDate: body.asOnDate, criteriaText: body.criteriaText });
+    return NextResponse.json({ ok: true, ...out });
+  } catch (err) {
+    return NextResponse.json({ error: err.message || 'Failed.' }, { status: 500 });
   }
 }
 

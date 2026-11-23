@@ -92,7 +92,7 @@ function ShowMore({ visible, total, onMore }) {
 const TABS = [
   ['progress', 'Progress Report'],
   ['summary', 'Summary'],
-  ['today', 'Paid today'],
+  ['today', 'Paid yesterday'],
   ['paid', 'Paid since last check'],
   ['ever', 'Paid since listing'],
   ['notpaid', 'Not paid'],
@@ -150,8 +150,8 @@ function SummaryTab({ rows, esdMap }) {
     { header: 'Consumers on list', render: (r) => int(r.listed), num: true },
     { header: 'Found in billing files', render: (r) => int(r.inFile), num: true },
     { header: 'Not found', render: (r) => int(r.notInFile), num: true },
-    { header: 'Paid today (consumers)', render: (r) => int(r.todayN), num: true },
-    { header: 'Amount realized today (Rs)', render: (r) => money(r.todayAmt), num: true },
+    { header: 'Paid yesterday (consumers)', render: (r) => int(r.todayN), num: true },
+    { header: 'Amount realized yesterday (Rs)', render: (r) => money(r.todayAmt), num: true },
     { header: 'Paid since last check (consumers)', render: (r) => int(r.paidN), num: true },
     { header: '% of found who paid', render: (r) => (r.inFile ? pct(r.paidPct) : '-'), num: true },
     { header: 'Amount realized since last check (Rs)', render: (r) => money(r.paidAmt), num: true },
@@ -213,7 +213,7 @@ function ConsumerTab({ rows, esdMap, kind }) {
   const t = useMemo(() => totalsOf(filtered), [filtered]);
 
   const notes = {
-    today: 'Consumers whose last payment in the billing file is dated on the report date (payments made today only).',
+    today: 'Consumers whose last payment in the billing file is dated the day before the report date (payments made yesterday only).',
     paid: 'Consumers whose Last Payment Date / Amount in today\'s billing file is newer than at the previous check.',
     ever: 'Every consumer who has paid at any check since being added to the list, with the total realized.',
     notpaid: 'Found in the billing files, but no payment seen since the consumer was listed.',
@@ -231,7 +231,7 @@ function ConsumerTab({ rows, esdMap, kind }) {
     { header: 'Balance when listed (Rs)', render: (r) => money(r.listedBalance), num: true },
     { header: 'Balance now (Rs)', render: (r) => (r.inFile ? money(r.balanceNow) : '-'), num: true },
     { header: 'Last payment date', render: (r) => fmtDateDMY(r.lastPaymentDate) || '-' },
-    { header: 'Paid today (Rs)', render: (r) => (r.paidToday ? money(r.todayAmount) : '-'), num: true },
+    { header: 'Paid yesterday (Rs)', render: (r) => (r.paidToday ? money(r.todayAmount) : '-'), num: true },
     { header: 'Paid since last check (Rs)', render: (r) => (r.newPayment ? money(r.paidAmount) : '-'), num: true },
     { header: 'Total paid since listing (Rs)', render: (r) => (r.cumPaidAmount ? money(r.cumPaidAmount) : '-'), num: true },
     { header: 'Remarks', render: (r) => r.remarks || '', left: true },
@@ -255,7 +255,7 @@ function ConsumerTab({ rows, esdMap, kind }) {
       <div className="wl-chips">
         <span className="wl-chip">{int(filtered.length)} consumers</span>
         {kind !== 'notfound' && <span className="wl-chip">Balance when listed: Rs {lakhs(t.listedNeg)} Lakh</span>}
-        {kind === 'today' && <span className="wl-chip good">Realized today: Rs {money(t.todayAmt)}</span>}
+        {kind === 'today' && <span className="wl-chip good">Realized yesterday: Rs {money(t.todayAmt)}</span>}
         {kind === 'paid' && <span className="wl-chip good">Realized since last check: Rs {money(t.paidAmt)}</span>}
         {kind === 'ever' && <span className="wl-chip good">Realized since listing: Rs {money(t.cumAmt)}</span>}
       </div>
@@ -318,7 +318,7 @@ export default function WatchlistView({ list, reportDate, asOnDate, criteria, he
       <div className="wl-chips">
         <span className="wl-chip">On list: {int(total.listed)}</span>
         <span className="wl-chip">Found in billing files: {int(total.inFile)}</span>
-        <span className="wl-chip good">Paid today: {int(total.todayN)} (Rs {money(total.todayAmt)})</span>
+        <span className="wl-chip good">Paid yesterday: {int(total.todayN)} (Rs {money(total.todayAmt)})</span>
         <span className="wl-chip good">Paid since last check: {int(total.paidN)} (Rs {money(total.paidAmt)})</span>
         <span className="wl-chip good">Paid since listing: {int(total.cumN)} (Rs {money(total.cumAmt)})</span>
         {total.notInFile > 0 && <span className="wl-chip">Not found in files: {int(total.notInFile)}</span>}
